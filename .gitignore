@@ -1,0 +1,25 @@
+# Logs
+logs/
+
+# Jupyter
+.ipynb_checkpoints/
+**/.ipynb_checkpoints/
+
+# Spark generated files
+spark-warehouse/
+**/spark-warehouse/
+
+# Python
+__pycache__/
+*.pyc
+
+# Environment / secrets
+.env
+*.env*.tar.gz
+*.tgz
+.DS_Store
+*.tar.gz
+*.tgz
+*.tar
+.DS_Store
+docker/jars/aws-java-sdk-bundle-1.12.367.jar
