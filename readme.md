@@ -1,8 +1,3 @@
-Dưới đây là bản **README.md** đã được viết lại toàn diện, chuyên nghiệp hơn, cập nhật đầy đủ toàn bộ 5 bước của Data Pipeline (Medallion Architecture) và bổ sung chi tiết phần cấu hình **Dashboard với Metabase** theo đúng kiến trúc mới nhất của bạn.
-
-Bạn có thể copy nội dung dưới đây và thay thế hoàn toàn file `README.md` cũ:
-
----
 
 # 🚀 Local Data Lakehouse Project: End-to-End Delivery Analytics
 
