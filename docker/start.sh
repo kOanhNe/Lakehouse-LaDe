@@ -24,15 +24,15 @@ sleep 5
 # =========================================================================
 # TỰ ĐỘNG TẠO BUCKET BẰNG MINIO CLIENT (Khắc phục lỗi AWS Signature V4)
 # =========================================================================
-echo "Downloading MinIO Client (mc)..."
-wget -q -O /tmp/mc https://dl.min.io/client/mc/release/linux-amd64/mc
-chmod +x /tmp/mc
-
-echo "Configuring MinIO Client and checking bucket 'lakehouse'..."
-# Khai báo alias kết nối với MinIO
-/tmp/mc alias set myminio http://minio:9000 minioadmin minioadmin
-# Tạo bucket và tự động bỏ qua nếu bucket đã tồn tại
-/tmp/mc mb myminio/lakehouse --ignore-existing || true
+echo "Creating bucket 'lakehouse' (curl + SigV4, khong can mc vi dl.min.io da bi go)..."
+# PUT bucket: 200 = tao moi, 409 = da ton tai (BucketAlreadyOwnedByYou) -> deu OK
+code=$(curl -s -o /dev/null -w "%{http_code}" -X PUT \
+    --user "${MINIO_ACCESS_KEY:-minioadmin}:${MINIO_SECRET_KEY:-minioadmin}" \
+    --aws-sigv4 "aws:amz:us-east-1:s3" \
+    "http://minio:9000/${BUCKET_NAME:-lakehouse}")
+if [ "$code" != "200" ] && [ "$code" != "409" ]; then
+    echo "ERROR: tao bucket that bai (HTTP $code)"; exit 1
+fi
 echo "Bucket 'lakehouse' setup completed successfully."
 # =========================================================================
 
