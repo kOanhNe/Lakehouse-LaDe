@@ -54,10 +54,10 @@
     "q_duration_gt24h": 2650,
     "q_duration_gt30d": 0,
     "q_stop_coordinate_invalid": 0,
-    "q_accept_coordinate_invalid": 2424,
-    "q_delivery_coordinate_invalid": 0,
-    "q_accept_distance_gt50km": 122,
-    "q_delivery_distance_gt50km": 81,
+    "q_accept_coordinate_invalid": 2526,
+    "q_delivery_coordinate_invalid": 6,
+    "q_accept_distance_gt50km": 20,
+    "q_delivery_distance_gt50km": 75,
     "q_accept_gps_after_accept": 0
   },
   "ds_matches_accept": 206431,
@@ -78,7 +78,9 @@
   "old_filter_retained": 201000,
   "silver_retained": 206431,
   "duration_eligible": 206062,
-  "ml_distance_eligible": 203698,
-  "unknown_test_couriers": 1851,
-  "unknown_test_aois": 465
+  "ml_distance_eligible": 203596,
+  "unknown_test_courier_ids": 15,
+  "unknown_test_courier_rows": 1851,
+  "unknown_test_aoi_ids": 384,
+  "unknown_test_aoi_rows": 465
 }

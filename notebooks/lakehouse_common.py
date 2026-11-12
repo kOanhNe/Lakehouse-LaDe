@@ -50,7 +50,7 @@ def valid_coordinates(lat, lng):
     return F.coalesce(
         la.isNotNull() & ln.isNotNull() & ~F.isnan(la) & ~F.isnan(ln)
         & la.between(-90, 90) & ln.between(-180, 180)
-        & ~((la == 0) & (ln == 0)), F.lit(False))
+        & ~((la.abs() < 0.01) & (ln.abs() < 0.01)), F.lit(False))
 
 
 def haversine(lat1, lng1, lat2, lng2):

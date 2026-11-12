@@ -1,6 +1,7 @@
 ﻿status,rows,pair
 valid,206431,stop_coordinate_status
-valid,204007,accept_coordinate_status
+valid,203905,accept_coordinate_status
 missing,2422,accept_coordinate_status
-zero_island,2,accept_coordinate_status
-valid,206431,delivery_coordinate_status
+zero_island,104,accept_coordinate_status
+valid,206425,delivery_coordinate_status
+zero_island,6,delivery_coordinate_status

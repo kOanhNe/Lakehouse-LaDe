@@ -104,6 +104,8 @@ def run(source, output, reference=None):
     # Compact per-row audit, raw CSV is never rewritten.
     data[['source_row_number','order_id','quality_reasons','silver_eligible','duration_eligible',
           'ml_distance_eligible','distance_at_accept_km','delivery_minutes']].to_csv(output/'row_quality.csv.gz',index=False,compression='gzip')
+    unknown_courier_mask = ~test.courier_id.isin(train.courier_id)
+    unknown_aoi_mask = ~test.aoi_id.isin(train.aoi_id)
     summary = dict(policy=POLICY_VERSION,sha256=hashlib.sha256(source.read_bytes()).hexdigest(),rows=len(raw),columns=len(raw.columns),
         exact_duplicate_rows=int(raw.duplicated().sum()),unique={c:int(raw[c].nunique()) for c in ['order_id','city','courier_id','region_id','aoi_id','aoi_type']},
         time_ranges={c:[str(data[c].min()),str(data[c].max())] for c in ['accept_ts','delivery_ts','accept_gps_ts','delivery_gps_ts','ds_date']},
@@ -115,7 +117,10 @@ def run(source, output, reference=None):
         accept_batches=len(batches),max_accept_batch=int(batches.max()),rows_in_simultaneous_accept_batches=int(batches[batches.gt(1)].sum()),
         accept_nonzero_seconds=n(data.accept_ts.dt.second.ne(0)),delivery_nonzero_seconds=n(data.delivery_ts.dt.second.ne(0)),
         old_filter_retained=n(old),silver_retained=n(data.silver_eligible),duration_eligible=n(data.duration_eligible),ml_distance_eligible=n(data.ml_distance_eligible),
-        unknown_test_couriers=n(~test.courier_id.isin(train.courier_id)),unknown_test_aois=n(~test.aoi_id.isin(train.aoi_id)))
+        unknown_test_courier_ids=int(test.loc[unknown_courier_mask, 'courier_id'].nunique()),
+        unknown_test_courier_rows=int(unknown_courier_mask.sum()),
+        unknown_test_aoi_ids=int(test.loc[unknown_aoi_mask, 'aoi_id'].nunique()),
+        unknown_test_aoi_rows=int(unknown_aoi_mask.sum()))
     if reference and reference.exists():
         ref=pd.read_parquet(reference).astype('string')
         left=raw.set_index('order_id').sort_index()

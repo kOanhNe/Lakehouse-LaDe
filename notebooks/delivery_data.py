@@ -30,7 +30,7 @@ def read_source(path):
 def coordinate_status(lat, lng):
     la, ln = pd.to_numeric(lat, errors='coerce').astype(float), pd.to_numeric(lng, errors='coerce').astype(float)
     status = pd.Series('valid', index=lat.index, dtype='string')
-    status.loc[(la == 0) & (ln == 0)] = 'zero_island'
+    status.loc[(la.abs() < 0.01) & (ln.abs() < 0.01)] = 'zero_island'
     status.loc[~la.between(-90, 90) | ~ln.between(-180, 180)] = 'out_of_range'
     status.loc[~np.isfinite(la) | ~np.isfinite(ln)] = 'non_numeric_or_nonfinite'
     status.loc[missing(lat) | missing(lng)] = 'missing'

@@ -17,7 +17,9 @@ Read the data findings first:
 docker compose up -d --build
 ```
 
-Open Jupyter at `http://localhost:8888`. Run notebooks `00` through `05` in the order in [notebooks/README.md](notebooks/README.md). The source file must be uploaded to MinIO as `s3a://lakehouse/delivery_yt.csv`.
+Open Jupyter at `http://localhost:8888`. Run notebooks `00` through `07` in the order in [notebooks/README.md](notebooks/README.md). The source file must be uploaded to MinIO as `s3a://lakehouse/delivery_yt.csv`.
+
+ETA is evaluated at query time: each sample represents a package still pending at a courier query point, and the target is remaining minutes until delivery. Notebook 06 writes `gold/ml/eta_query_samples`; notebook 07 evaluates a global median, leakage-safe historical SPEED baseline and Spark GBT on `log1p(target_remaining_minutes)`, then writes `gold/ml/eta_eval_by_cohort`. This query-time task is different from the LaDe paper's original delivery-time experiment, so its results must not be compared directly with Table 4.
 
 The local audit can run without Spark:
 

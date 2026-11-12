@@ -56,7 +56,7 @@ def main():
             for prefix in ['', 'accept_gps_', 'delivery_gps_']:
                 try:
                     lat, lng = float(row[prefix+'lat']), float(row[prefix+'lng'])
-                    valid = math.isfinite(lat) and math.isfinite(lng) and -90 <= lat <= 90 and -180 <= lng <= 180 and (lat, lng) != (0, 0)
+                    valid = math.isfinite(lat) and math.isfinite(lng) and -90 <= lat <= 90 and -180 <= lng <= 180 and not (abs(lat) < 0.01 and abs(lng) < 0.01)
                 except ValueError:
                     valid = False
                 stats[(prefix or 'receiver_')+'invalid_coordinates'] += not valid

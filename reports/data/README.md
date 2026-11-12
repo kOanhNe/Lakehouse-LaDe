@@ -25,7 +25,7 @@ Các timestamp không có năm và không có giây khác 0. Pipeline tái tạo
 
 * Một thành phố: Yantai; 205 tài xế; 17 vùng; 8.163 AOI; 16 mã `aoi_type`.
 * Không thiếu ID nghiệp vụ, timestamp, tọa độ điểm dừng hoặc GPS giao hàng.
-* 2.422 dòng thiếu GPS nhận, 2 dòng GPS nhận bằng `(0,0)`, tổng cộng 2.424 dòng GPS nhận không dùng được.
+* 2.422 dòng thiếu GPS nhận, 104 dòng GPS nhận thuộc zero-island (`abs(lat)<0.01` và `abs(lng)<0.01`), 6 dòng GPS giao thuộc zero-island; quy tắc này được áp dụng thay cho kiểm tra đúng `(0,0)`.
 * 369 dòng có thời lượng bằng 0; không có thời lượng âm.
 * 2.987 dòng giao khác ngày; 2.650 dòng vượt 24 giờ. Đây là quan sát cần phân tích, không tự động chứng minh là lỗi.
 * `ds` khớp `accept_time` ở 206.431/206.431 dòng và khớp `delivery_time` ở 203.444/206.431 dòng. Vì vậy không được dùng `ds` như ngày hoàn tất cho mọi đơn.
@@ -33,7 +33,7 @@ Các timestamp không có năm và không có giây khác 0. Pipeline tái tạo
 * 157 courier-day có hơn một `region_id`; 12.364 courier-day có hơn một AOI. Không được coi tài xế chỉ thuộc một vùng/AOI duy nhất trong cả ngày.
 * 350 AOI xuất hiện ở hơn một region và 6.057 AOI có hơn một cặp tọa độ quan sát. `dim_aoi` vì thế là tâm quan sát phục vụ mô tả, không phải ground truth hình học.
 * Có 160.153 dòng nằm trong các nhóm nhận cùng một timestamp; timestamp phút không biểu diễn thứ tự chính xác trong batch. Mọi thứ tự theo thời gian phải thêm `order_id` để deterministic và không được diễn giải là thứ tự tài xế thực tế.
-* Tập train trước 2022-10-01 có 169.736 dòng và 190 tài xế; test có 36.695 dòng và 137 tài xế. Test có 1.851 tài xế và 465 AOI chưa từng xuất hiện ở train, nên kết quả mô hình phải báo rõ cold-start.
+* Tập train trước 2022-10-01 có 169.736 dòng và 190 tài xế; test có 36.695 dòng và 137 tài xế. Test có 15 courier ID chưa từng xuất hiện ở train (ảnh hưởng 1.851 dòng) và 384 AOI ID chưa từng xuất hiện ở train (ảnh hưởng 465 dòng), nên kết quả mô hình phải báo rõ cold-start.
 
 ## Kết luận về biến dẫn xuất
 
