@@ -1,66 +1,43 @@
 #!/bin/bash
-set -e
-
+set -euo pipefail
 mkdir -p /opt/hadoop/logs
 
-export HADOOP_HOME=/opt/hadoop
-export HIVE_HOME=/opt/hive
-export SPARK_HOME=/opt/spark
-export PATH=$PATH:$HADOOP_HOME/bin:$HADOOP_HOME/sbin:$HIVE_HOME/bin:$SPARK_HOME/bin:$SPARK_HOME/sbin
-
 wait_for_port() {
-    local host="$1" port="$2"
-    while ! timeout 1 bash -c "echo > /dev/tcp/$host/$port" 2>/dev/null; do
-        echo "Waiting for $host:$port..."
+    local host="$1" port="$2" attempt
+    for attempt in $(seq 1 90); do
+        if timeout 1 bash -c "echo > /dev/tcp/$host/$port" 2>/dev/null; then
+            return 0
+        fi
         sleep 2
     done
+    echo "Timed out waiting for $host:$port; inspect /opt/hadoop/logs" >&2
+    return 1
 }
 
-# Đợi MinIO
 wait_for_port minio 9000
-echo "MinIO is up. Waiting 5s for full initialization..."
-sleep 5
 
-# =========================================================================
-# TỰ ĐỘNG TẠO BUCKET BẰNG MINIO CLIENT (Khắc phục lỗi AWS Signature V4)
-# =========================================================================
-echo "Downloading MinIO Client (mc)..."
-wget -q -O /tmp/mc https://dl.min.io/client/mc/release/linux-amd64/mc
-chmod +x /tmp/mc
-
-echo "Configuring MinIO Client and checking bucket 'lakehouse'..."
-# Khai báo alias kết nối với MinIO
-/tmp/mc alias set myminio http://minio:9000 minioadmin minioadmin
-# Tạo bucket và tự động bỏ qua nếu bucket đã tồn tại
-/tmp/mc mb myminio/lakehouse --ignore-existing || true
-echo "Bucket 'lakehouse' setup completed successfully."
-# =========================================================================
-
-# Khởi tạo Hive Metastore schema
-echo "Checking Hive Metastore schema..."
-if [ ! -d "/opt/hive/metastore_db/derby" ]; then
-    echo "Initializing Hive Metastore schema..."
-    $HIVE_HOME/bin/schematool -dbType derby -initSchema -verbose || true
-else
-    echo "Metastore schema already exists."
+# Validate the schema; directory existence alone does not prove initialization.
+if [ ! -f /opt/hive/metastore_db/derby/service.properties ]; then
+    "$HIVE_HOME/bin/schematool" -dbType derby -initSchema -verbose
 fi
-
-# Khởi động Hive Metastore
-echo "Starting Hive Metastore..."
-nohup $HIVE_HOME/bin/hive --service metastore > /opt/hadoop/logs/hive-metastore.log 2>&1 &
+"$HIVE_HOME/bin/schematool" -dbType derby -info
+"$HIVE_HOME/bin/hive" --service metastore > /opt/hadoop/logs/hive-metastore.log 2>&1 &
+metastore_pid=$!
+trap 'kill "$metastore_pid" 2>/dev/null || true; "$SPARK_HOME/sbin/stop-thriftserver.sh" || true' EXIT
+trap 'exit 0' TERM INT
 wait_for_port localhost 9083
-
-# Khởi động Spark Thrift Server
-echo "Starting Spark Thrift Server..."
-$SPARK_HOME/sbin/start-thriftserver.sh \
-    --master local[*] \
+"$SPARK_HOME/sbin/start-thriftserver.sh" \
+    --master 'local[2]' \
     --conf spark.hadoop.hive.metastore.uris=thrift://localhost:9083 \
     --conf spark.sql.warehouse.dir=s3a://lakehouse/warehouse \
     --hiveconf hive.server2.thrift.bind.host=0.0.0.0 \
     --hiveconf hive.server2.thrift.port=10001 \
     --hiveconf hive.server2.authentication=NOSASL
-
 wait_for_port localhost 10001
-echo "Lakehouse services are ready!"
-
-tail -f /dev/null
+echo "Lakehouse services are ready"
+while kill -0 "$metastore_pid" 2>/dev/null; do
+    timeout 2 bash -c 'echo > /dev/tcp/localhost/10001' || exit 1
+    sleep 5 &
+    wait $!
+done
+exit 1

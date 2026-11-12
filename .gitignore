@@ -1,25 +1,17 @@
-# Logs
+# Generated runtime files
 logs/
-
-# Jupyter
 .ipynb_checkpoints/
 **/.ipynb_checkpoints/
-
-# Spark generated files
-spark-warehouse/
 **/spark-warehouse/
-
-# Python
-__pycache__/
+**/__pycache__/
 *.pyc
-
-# Environment / secrets
+.venv/
 .env
-*.env*.tar.gz
-*.tgz
-.DS_Store
+*.env
+# Large local distributions and optional dependencies
 *.tar.gz
 *.tgz
 *.tar
+docker/jars/aws-java-sdk-bundle-*.jar
 .DS_Store
-docker/jars/aws-java-sdk-bundle-1.12.367.jar
+session_*.txt

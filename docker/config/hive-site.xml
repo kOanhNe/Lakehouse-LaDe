@@ -2,7 +2,7 @@
 <configuration>
     <property>
         <name>hive.metastore.warehouse.dir</name>
-        <value>/user/hive/warehouse</value>
+        <value>s3a://lakehouse/warehouse</value>
     </property>
     <property>
         <name>javax.jdo.option.ConnectionURL</name>

@@ -4,23 +4,29 @@ services:
     container_name: lakehouse
     hostname: lakehouse
     ports:
-      - "9083:9083"   # Hive Metastore (thrift)
-      - "10002:10001" # Spark Thrift Server - JDBC port
-      - "4040:4040"   # Spark Application UI
+      - "127.0.0.1:9083:9083"
+      - "127.0.0.1:10002:10001"
+      - "127.0.0.1:4041:4040"
     volumes:
       - hive_metastore:/opt/hive/metastore_db
-      - ./notebooks:/opt/spark/work-dir
-      - ./logs:/opt/hadoop/logs   # mount logs ra ngoài để debug
+      - ./logs:/opt/hadoop/logs
     depends_on:
-      - minio
-      - mysql
-    networks:
-      - lakehouse-net
+      minio:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
     environment:
-      - MINIO_ENDPOINT=http://minio:9000
-      - MINIO_ACCESS_KEY=minioadmin
-      - MINIO_SECRET_KEY=minioadmin
-      - BUCKET_NAME=lakehouse   # tên bucket mặc định
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+      BUCKET_NAME: lakehouse
+    healthcheck:
+      test: ["CMD", "bash", "-c", "echo > /dev/tcp/localhost/10001"]
+      interval: 10s
+      timeout: 3s
+      retries: 30
+      start_period: 60s
+    networks: [lakehouse-net]
 
   mysql:
     image: mysql:8.4
@@ -28,68 +34,103 @@ services:
     environment:
       MYSQL_ROOT_PASSWORD: root
       MYSQL_DATABASE: delivery_source
+      MYSQL_USER: delivery
+      MYSQL_PASSWORD: delivery
     ports:
-      - "3306:3306"
-    networks:
-      - lakehouse-net
+      - "127.0.0.1:3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+    networks: [lakehouse-net]
 
   minio:
     image: minio/minio:RELEASE.2023-09-04T19-57-37Z
     container_name: minio
     ports:
-      - "9000:9000"   # API S3
-      - "9001:9001"   # Console
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"
     environment:
       MINIO_ROOT_USER: minioadmin
       MINIO_ROOT_PASSWORD: minioadmin
     command: server /data --console-address ":9001"
     volumes:
       - minio_data:/data
-    networks:
-      - lakehouse-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    networks: [lakehouse-net]
 
-  # --- Service Jupyter mới để chạy notebook ---
+  minio-init:
+    image: minio/mc:RELEASE.2023-09-04T19-57-37Z
+    container_name: minio-init
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "-c"]
+    command: >-
+      mc alias set local http://minio:9000 minioadmin minioadmin &&
+      mc mb --ignore-existing local/lakehouse
+    networks: [lakehouse-net]
+
   jupyter:
-    image: jupyter/pyspark-notebook:latest
+    build:
+      context: .
+      dockerfile: docker/jupyter.Dockerfile
     container_name: jupyter
+    working_dir: /home/jovyan/work
     ports:
-      - "8888:8888"
+      - "127.0.0.1:8888:8888"
+      - "127.0.0.1:4040:4040"
     volumes:
       - ./notebooks:/home/jovyan/work
+      - ./data:/home/jovyan/data:ro
+      - ./reports:/home/jovyan/reports:ro
+      - spark_ivy:/home/jovyan/.ivy2
     environment:
-      - JUPYTER_ENABLE_LAB=yes
-      - SPARK_OPTS=--master local[*] \
-          --packages org.apache.hadoop:hadoop-aws:3.3.4,com.amazonaws:aws-java-sdk-bundle:1.12.262,io.delta:delta-spark_2.12:3.3.2,mysql:mysql-connector-java:8.0.33 \
-          --conf spark.hadoop.fs.s3a.endpoint=http://minio:9000 \
-          --conf spark.hadoop.fs.s3a.access.key=minioadmin \
-          --conf spark.hadoop.fs.s3a.secret.key=minioadmin \
-          --conf spark.hadoop.fs.s3a.path.style.access=true \
-          --conf spark.hadoop.fs.s3a.impl=org.apache.hadoop.fs.s3a.S3AFileSystem \
-          --conf spark.sql.warehouse.dir=s3a://lakehouse/warehouse \
-          --conf spark.hadoop.hive.metastore.uris=thrift://lakehouse:9083 \
-          --conf spark.sql.extensions=io.delta.sql.DeltaSparkSessionExtension \
-          --conf spark.sql.catalog.spark_catalog=org.apache.spark.sql.delta.catalog.DeltaCatalog
+      JUPYTER_ENABLE_LAB: "yes"
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+      MYSQL_USER: delivery
+      MYSQL_PASSWORD: delivery
+      PYSPARK_SUBMIT_ARGS: >-
+        --master local[2]
+        --packages org.apache.hadoop:hadoop-aws:3.3.4,com.amazonaws:aws-java-sdk-bundle:1.12.262,io.delta:delta-spark_2.12:3.3.2,com.mysql:mysql-connector-j:8.0.33
+        pyspark-shell
     depends_on:
-      - lakehouse
-      - minio
-    networks:
-      - lakehouse-net
+      lakehouse:
+        condition: service_healthy
+      mysql:
+        condition: service_healthy
+    networks: [lakehouse-net]
 
   metabase:
-    image: metabase/metabase:latest
+    image: metabase/metabase:v0.50.32
     container_name: metabase
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     environment:
-      MB_DB_TYPE: h2 # Sử dụng DB nội bộ cho nhẹ, hoặc trỏ sang MySQL nếu muốn lưu data vĩnh viễn
+      MB_DB_TYPE: h2
+      MB_DB_FILE: /metabase-data/metabase.db
+    volumes:
+      - metabase_data:/metabase-data
     depends_on:
-      - lakehouse
-    networks:
-      - lakehouse-net
+      mysql:
+        condition: service_healthy
+    networks: [lakehouse-net]
 
 volumes:
   hive_metastore:
   minio_data:
+  mysql_data:
+  metabase_data:
+  spark_ivy:
 
 networks:
   lakehouse-net:

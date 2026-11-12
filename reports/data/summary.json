@@ -1,0 +1,84 @@
+{
+  "policy": "lade-d-quality-v1",
+  "sha256": "aa5bca7fdaa8c89d4ab50a2ed2b94fb09f608acc49fc1108a1a612e9c0f5a7ad",
+  "rows": 206431,
+  "columns": 17,
+  "exact_duplicate_rows": 0,
+  "unique": {
+    "order_id": 206431,
+    "city": 1,
+    "courier_id": 205,
+    "region_id": 17,
+    "aoi_id": 8163,
+    "aoi_type": 16
+  },
+  "time_ranges": {
+    "accept_ts": [
+      "2022-05-01 07:34:00",
+      "2022-10-31 20:19:00"
+    ],
+    "delivery_ts": [
+      "2022-05-01 08:16:00",
+      "2022-11-05 22:31:00"
+    ],
+    "accept_gps_ts": [
+      "2022-05-01 07:34:00",
+      "2022-10-31 20:19:00"
+    ],
+    "delivery_gps_ts": [
+      "2022-05-01 08:16:00",
+      "2022-11-05 22:31:00"
+    ],
+    "ds_date": [
+      "2022-05-01 00:00:00",
+      "2022-10-31 00:00:00"
+    ]
+  },
+  "flags": {
+    "q_invalid_accept_time": 0,
+    "q_invalid_delivery_time": 0,
+    "q_invalid_accept_gps_time": 0,
+    "q_invalid_delivery_gps_time": 0,
+    "q_missing_order_id": 0,
+    "q_duplicate_order_id": 0,
+    "q_missing_region_id": 0,
+    "q_missing_courier_id": 0,
+    "q_missing_aoi_id": 0,
+    "q_missing_aoi_type": 0,
+    "q_missing_city": 0,
+    "q_invalid_ds": 0,
+    "q_ds_delivery_mismatch": 2987,
+    "q_negative_duration": 0,
+    "q_zero_duration": 369,
+    "q_cross_day": 2987,
+    "q_duration_gt24h": 2650,
+    "q_duration_gt30d": 0,
+    "q_stop_coordinate_invalid": 0,
+    "q_accept_coordinate_invalid": 2424,
+    "q_delivery_coordinate_invalid": 0,
+    "q_accept_distance_gt50km": 122,
+    "q_delivery_distance_gt50km": 81,
+    "q_accept_gps_after_accept": 0
+  },
+  "ds_matches_accept": 206431,
+  "ds_matches_delivery": 203444,
+  "accept_gps_same_event": 206431,
+  "delivery_gps_same_event": 206431,
+  "courier_days": 17941,
+  "courier_days_multi_region": 157,
+  "courier_days_multi_aoi": 12364,
+  "aois_multi_type": 0,
+  "aois_multi_region": 350,
+  "aois_multi_coordinate": 6057,
+  "accept_batches": 90941,
+  "max_accept_batch": 23,
+  "rows_in_simultaneous_accept_batches": 160153,
+  "accept_nonzero_seconds": 0,
+  "delivery_nonzero_seconds": 0,
+  "old_filter_retained": 201000,
+  "silver_retained": 206431,
+  "duration_eligible": 206062,
+  "ml_distance_eligible": 203698,
+  "unknown_test_couriers": 1851,
+  "unknown_test_aois": 465
+}
