@@ -1,0 +1,75 @@
+"""Pipeline end-to-end bằng Prefect: Bronze -> Silver -> SCD2 -> Gold + ML -> MySQL.
+
+Chạy một lần:      python /home/jovyan/pipeline/flow.py
+Chạy theo lịch:    python /home/jovyan/pipeline/flow.py --serve
+"""
+import argparse
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from prefect import flow, get_run_logger, task
+
+import steps
+
+
+@task(name="1. Bronze: nạp CSV", retries=1, retry_delay_seconds=30)
+def t_bronze():
+    out = steps.ingest_bronze(steps.get_spark())
+    get_run_logger().info(out)
+    return out
+
+
+@task(name="2. Silver: làm sạch + cột phái sinh", retries=1, retry_delay_seconds=30)
+def t_silver(_upstream):
+    out = steps.transform_silver(steps.get_spark())
+    get_run_logger().info(out)
+    return out
+
+
+@task(name="3. SCD2: dim_courier", retries=1, retry_delay_seconds=30)
+def t_dim(_upstream):
+    out = steps.build_dim_courier(steps.get_spark())
+    get_run_logger().info(out)
+    return out
+
+
+@task(name="4. Gold: fact + huấn luyện ETA", retries=1, retry_delay_seconds=30)
+def t_gold(_upstream, train_end, late_threshold_min):
+    out = steps.build_fact_and_train(steps.get_spark(), train_end, late_threshold_min)
+    get_run_logger().info(out)
+    return out
+
+
+@task(name="5. Serving: đẩy bảng sang MySQL", retries=1, retry_delay_seconds=30)
+def t_serve(_upstream):
+    out = steps.serve_to_mysql(steps.get_spark())
+    get_run_logger().info(out)
+    return out
+
+
+@flow(name="delivery-lakehouse-pipeline", log_prints=True)
+def delivery_pipeline(train_end: str = "2022-10-01", late_threshold_min: float | None = None):
+    bronze = t_bronze()
+    silver = t_silver(bronze)
+    dim = t_dim(silver)
+    gold = t_gold(dim, train_end, late_threshold_min)
+    served = t_serve(gold)
+    return {"bronze": bronze, "silver": silver, "dim": dim, "gold": gold, "served": served}
+
+
+if __name__ == "__main__":
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--serve", action="store_true", help="chạy nền theo lịch (mặc định 02:00 mỗi ngày)")
+    ap.add_argument("--cron", default="0 2 * * *")
+    ap.add_argument("--train-end", default="2022-10-01")
+    ap.add_argument("--late-threshold", type=float, default=None,
+                    help="ngưỡng 'trễ' tính bằng phút; bỏ trống = p90 của tập train")
+    a = ap.parse_args()
+    if a.serve:
+        delivery_pipeline.serve(name="delivery-scheduled", cron=a.cron,
+                                parameters={"train_end": a.train_end,
+                                            "late_threshold_min": a.late_threshold})
+    else:
+        delivery_pipeline(train_end=a.train_end, late_threshold_min=a.late_threshold)

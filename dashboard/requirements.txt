@@ -1,0 +1,6 @@
+streamlit>=1.40
+pandas>=2.2
+plotly>=5.24
+sqlalchemy>=2.0
+pymysql>=1.1
+cryptography>=42

@@ -1,70 +1,133 @@
+
 FROM ubuntu:22.04
+
 ENV DEBIAN_FRONTEND=noninteractive
 
-# 1. Cài đặt các gói cơ bản, Java 11 và OPENSSH-SERVER
+# =========================================================
+# 1. BASIC PACKAGES + JAVA 11
+# =========================================================
 RUN apt-get update && apt-get install -y \
     openjdk-11-jdk \
     vim \
     wget \
     curl \
     net-tools \
+    netcat-openbsd \
     iputils-ping \
     ca-certificates \
-    && apt-get clean && rm -rf /var/lib/apt/lists/*
+    procps \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
 
 ENV JAVA_HOME=/usr/lib/jvm/java-11-openjdk-amd64
-ENV PATH=$PATH:$JAVA_HOME/bin
+ENV PATH=${JAVA_HOME}/bin:${PATH}
 
-# 2. Cài đặt Hadoop 3.3.6
+# =========================================================
+# 2. HADOOP 3.3.6
+# =========================================================
 ADD hadoop-3.3.6.tar.gz /opt/
+
 RUN mv /opt/hadoop-3.3.6 /opt/hadoop
+
 ENV HADOOP_HOME=/opt/hadoop
-ENV HADOOP_CONF_DIR=$HADOOP_HOME/etc/hadoop
-ENV PATH=$PATH:$HADOOP_HOME/bin:$HADOOP_HOME/sbin
+ENV HADOOP_CONF_DIR=${HADOOP_HOME}/etc/hadoop
+ENV PATH=${HADOOP_HOME}/bin:${HADOOP_HOME}/sbin:${PATH}
 
-# 3. Cài đặt Hive 2.3.10
+# =========================================================
+# 3. HIVE 2.3.10
+# =========================================================
 ADD apache-hive-2.3.10-bin.tar.gz /opt/
+
 RUN mv /opt/apache-hive-2.3.10-bin /opt/hive
+
 ENV HIVE_HOME=/opt/hive
-ENV PATH=$PATH:$HIVE_HOME/bin
+ENV PATH=${HIVE_HOME}/bin:${PATH}
 
-# 4. Cài đặt Spark 3.5.3 (đổi từ 4.1.1)
+# =========================================================
+# 4. SPARK 3.5.3 - HADOOP 3 BUNDLE
+# =========================================================
 ADD spark-3.5.3-bin-hadoop3.tgz /opt/
+
 RUN mv /opt/spark-3.5.3-bin-hadoop3 /opt/spark
+
 ENV SPARK_HOME=/opt/spark
-ENV PATH=$PATH:$SPARK_HOME/bin:$SPARK_HOME/sbin
+ENV PATH=${SPARK_HOME}/bin:${SPARK_HOME}/sbin:${PATH}
 
-# 4b. Thêm Delta Lake (Cách A - copy jar đã tải sẵn từ docker/jars/)
-COPY docker/jars/delta-spark_2.12-3.3.2.jar $SPARK_HOME/jars/
-COPY docker/jars/delta-storage-3.3.2.jar $SPARK_HOME/jars/
-# S3 dependencies must match the Hadoop client bundled in the Spark archive.
-RUN cp $HADOOP_HOME/share/hadoop/tools/lib/hadoop-aws-*.jar $SPARK_HOME/jars/ && \
-    cp $HADOOP_HOME/share/hadoop/tools/lib/aws-java-sdk-bundle-*.jar $SPARK_HOME/jars/
+# =========================================================
+# 5. DELTA LAKE + S3A DEPENDENCIES
+# =========================================================
 
+# Delta Lake 3.3.2 - Spark 3.5.x - Scala 2.12
+COPY docker/jars/delta-spark_2.12-3.3.2.jar \
+     ${SPARK_HOME}/jars/
 
-# 5. FIX LỖI THƯ VIỆN & PHÂN QUYỀN SSH NỘI BỘ (HADOOP)
-RUN rm -f $HIVE_HOME/lib/guava-*.jar && \
-    cp $HADOOP_HOME/share/hadoop/common/lib/guava-*.jar $HIVE_HOME/lib/ && \
-    cp $HADOOP_HOME/share/hadoop/tools/lib/hadoop-aws-*.jar $HIVE_HOME/lib/ && \
-    cp $HADOOP_HOME/share/hadoop/tools/lib/aws-java-sdk-bundle-*.jar $HIVE_HOME/lib/
+COPY docker/jars/delta-storage-3.3.2.jar \
+     ${SPARK_HOME}/jars/
 
-# 6. THIẾT LẬP CẤU HÌNH
-COPY docker/config/* $HADOOP_CONF_DIR/
-RUN find $HADOOP_CONF_DIR -type f -exec sed -i 's/\r$//' {} +
-COPY docker/config/hive-site.xml $HIVE_HOME/conf/
-COPY docker/config/hive-site.xml $SPARK_HOME/conf/
-COPY docker/config/spark-defaults.conf $SPARK_HOME/conf/
-RUN sed -i 's/\r$//' $SPARK_HOME/conf/spark-defaults.conf
+# Spark 3.5.3 bin-hadoop3 bundles Hadoop client 3.3.4.
+# Therefore, S3A dependencies in Spark must also use 3.3.4.
 
-# 7. BIẾN MÔI TRƯỜNG HADOOP USER
+# Remove any conflicting S3A libraries if present.
+RUN rm -f ${SPARK_HOME}/jars/hadoop-aws-*.jar \
+          ${SPARK_HOME}/jars/aws-java-sdk-bundle-*.jar
+
+# Use matching Hadoop AWS and AWS SDK versions.
+COPY docker/jars/hadoop-aws-3.3.4.jar \
+     ${SPARK_HOME}/jars/
+
+COPY docker/jars/aws-java-sdk-bundle-1.12.262.jar \
+     ${SPARK_HOME}/jars/
+
+# =========================================================
+# 6. HIVE LIBRARY COMPATIBILITY
+# =========================================================
+
+# Hive uses the separately installed Hadoop 3.3.6.
+# Keep its S3A dependencies aligned with Hadoop 3.3.6.
+RUN rm -f ${HIVE_HOME}/lib/guava-*.jar && \
+    cp ${HADOOP_HOME}/share/hadoop/common/lib/guava-*.jar \
+       ${HIVE_HOME}/lib/ && \
+    cp ${HADOOP_HOME}/share/hadoop/tools/lib/hadoop-aws-*.jar \
+       ${HIVE_HOME}/lib/ && \
+    cp ${HADOOP_HOME}/share/hadoop/tools/lib/aws-java-sdk-bundle-*.jar \
+       ${HIVE_HOME}/lib/
+
+# =========================================================
+# 7. CONFIGURATION FILES
+# =========================================================
+
+# Hadoop configuration
+COPY docker/config/ ${HADOOP_CONF_DIR}/
+
+RUN find ${HADOOP_CONF_DIR} -type f \
+    -exec sed -i 's/\r$//' {} +
+
+# Hive configuration
+COPY docker/config/hive-site.xml ${HIVE_HOME}/conf/
+
+# Spark configuration
+COPY docker/config/hive-site.xml ${SPARK_HOME}/conf/
+COPY docker/config/spark-defaults.conf ${SPARK_HOME}/conf/
+
+RUN sed -i 's/\r$//' ${SPARK_HOME}/conf/spark-defaults.conf
+
+# =========================================================
+# 8. HADOOP USER CONFIGURATION
+# =========================================================
 ENV HDFS_NAMENODE_USER=root
 ENV HDFS_DATANODE_USER=root
 ENV HDFS_SECONDARYNAMENODE_USER=root
 ENV YARN_RESOURCEMANAGER_USER=root
 ENV YARN_NODEMANAGER_USER=root
 
-# 8. KHỞI CHẠY
+# =========================================================
+# 9. STARTUP
+# =========================================================
 COPY docker/start.sh /start.sh
-RUN sed -i 's/\r$//' /start.sh && chmod +x /start.sh
+
+RUN sed -i 's/\r$//' /start.sh && \
+    chmod +x /start.sh
+
 WORKDIR /opt/hadoop
+
 ENTRYPOINT ["/start.sh"]

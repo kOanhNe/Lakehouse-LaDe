@@ -1,0 +1,108 @@
+Spark Command: /usr/lib/jvm/java-11-openjdk-amd64/bin/java -cp /opt/spark/conf/:/opt/spark/jars/*:/opt/hadoop/etc/hadoop/ -Xmx1g -XX:+IgnoreUnrecognizedVMOptions --add-opens=java.base/java.lang=ALL-UNNAMED --add-opens=java.base/java.lang.invoke=ALL-UNNAMED --add-opens=java.base/java.lang.reflect=ALL-UNNAMED --add-opens=java.base/java.io=ALL-UNNAMED --add-opens=java.base/java.net=ALL-UNNAMED --add-opens=java.base/java.nio=ALL-UNNAMED --add-opens=java.base/java.util=ALL-UNNAMED --add-opens=java.base/java.util.concurrent=ALL-UNNAMED --add-opens=java.base/java.util.concurrent.atomic=ALL-UNNAMED --add-opens=java.base/jdk.internal.ref=ALL-UNNAMED --add-opens=java.base/sun.nio.ch=ALL-UNNAMED --add-opens=java.base/sun.nio.cs=ALL-UNNAMED --add-opens=java.base/sun.security.action=ALL-UNNAMED --add-opens=java.base/sun.util.calendar=ALL-UNNAMED --add-opens=java.security.jgss/sun.security.krb5=ALL-UNNAMED -Djdk.reflect.useDirectMethodHandle=false org.apache.spark.deploy.SparkSubmit --master local[2] --conf spark.hadoop.hive.metastore.uris=thrift://localhost:9083 --conf spark.sql.warehouse.dir=s3a://lakehouse/warehouse --class org.apache.spark.sql.hive.thriftserver.HiveThriftServer2 --name Thrift JDBC/ODBC Server spark-internal --hiveconf hive.server2.thrift.bind.host=0.0.0.0 --hiveconf hive.server2.thrift.port=10001 --hiveconf hive.server2.authentication=NOSASL
+========================================
+26/11/16 07:41:44 INFO HiveThriftServer2: Started daemon with process name: 723@lakehouse
+26/11/16 07:41:44 INFO SignalUtils: Registering signal handler for TERM
+26/11/16 07:41:44 INFO SignalUtils: Registering signal handler for HUP
+26/11/16 07:41:44 INFO SignalUtils: Registering signal handler for INT
+26/11/16 07:41:44 INFO HiveThriftServer2: Starting SparkContext
+26/11/16 07:41:45 INFO HiveConf: Found configuration file file:/opt/spark/conf/hive-site.xml
+26/11/16 07:41:45 INFO SparkContext: Running Spark version 3.5.3
+26/11/16 07:41:45 INFO SparkContext: OS info Linux, 5.15.49-linuxkit, amd64
+26/11/16 07:41:45 INFO SparkContext: Java version 11.0.33
+26/11/16 07:41:46 WARN NativeCodeLoader: Unable to load native-hadoop library for your platform... using builtin-java classes where applicable
+26/11/16 07:41:46 INFO ResourceUtils: ==============================================================
+26/11/16 07:41:46 INFO ResourceUtils: No custom resources configured for spark.driver.
+26/11/16 07:41:46 INFO ResourceUtils: ==============================================================
+26/11/16 07:41:46 INFO SparkContext: Submitted application: Thrift JDBC/ODBC Server
+26/11/16 07:41:46 INFO ResourceProfile: Default ResourceProfile created, executor resources: Map(cores -> name: cores, amount: 1, script: , vendor: , memory -> name: memory, amount: 1024, script: , vendor: , offHeap -> name: offHeap, amount: 0, script: , vendor: ), task resources: Map(cpus -> name: cpus, amount: 1.0)
+26/11/16 07:41:46 INFO ResourceProfile: Limiting resource is cpu
+26/11/16 07:41:46 INFO ResourceProfileManager: Added ResourceProfile id: 0
+26/11/16 07:41:47 INFO SecurityManager: Changing view acls to: root
+26/11/16 07:41:47 INFO SecurityManager: Changing modify acls to: root
+26/11/16 07:41:47 INFO SecurityManager: Changing view acls groups to: 
+26/11/16 07:41:47 INFO SecurityManager: Changing modify acls groups to: 
+26/11/16 07:41:47 INFO SecurityManager: SecurityManager: authentication disabled; ui acls disabled; users with view permissions: root; groups with view permissions: EMPTY; users with modify permissions: root; groups with modify permissions: EMPTY
+26/11/16 07:41:48 INFO Utils: Successfully started service 'sparkDriver' on port 36643.
+26/11/16 07:41:48 INFO SparkEnv: Registering MapOutputTracker
+26/11/16 07:41:49 INFO SparkEnv: Registering BlockManagerMaster
+26/11/16 07:41:49 INFO BlockManagerMasterEndpoint: Using org.apache.spark.storage.DefaultTopologyMapper for getting topology information
+26/11/16 07:41:49 INFO BlockManagerMasterEndpoint: BlockManagerMasterEndpoint up
+26/11/16 07:41:49 INFO SparkEnv: Registering BlockManagerMasterHeartbeat
+26/11/16 07:41:49 INFO DiskBlockManager: Created local directory at /tmp/blockmgr-49d7278e-1712-4ef8-9014-809c8d715828
+26/11/16 07:41:49 INFO MemoryStore: MemoryStore started with capacity 434.4 MiB
+26/11/16 07:41:49 INFO SparkEnv: Registering OutputCommitCoordinator
+26/11/16 07:41:50 INFO JettyUtils: Start Jetty 0.0.0.0:4040 for SparkUI
+26/11/16 07:41:51 INFO Utils: Successfully started service 'SparkUI' on port 4040.
+26/11/16 07:41:51 INFO Executor: Starting executor ID driver on host lakehouse
+26/11/16 07:41:51 INFO Executor: OS info Linux, 5.15.49-linuxkit, amd64
+26/11/16 07:41:51 INFO Executor: Java version 11.0.33
+26/11/16 07:41:51 INFO Executor: Starting executor with user classpath (userClassPathFirst = false): ''
+26/11/16 07:41:51 INFO Executor: Created or updated repl class loader org.apache.spark.util.MutableURLClassLoader@650c405c for default.
+26/11/16 07:41:52 INFO Utils: Successfully started service 'org.apache.spark.network.netty.NettyBlockTransferService' on port 36265.
+26/11/16 07:41:52 INFO NettyBlockTransferService: Server created on lakehouse:36265
+26/11/16 07:41:52 INFO BlockManager: Using org.apache.spark.storage.RandomBlockReplicationPolicy for block replication policy
+26/11/16 07:41:52 INFO BlockManagerMaster: Registering BlockManager BlockManagerId(driver, lakehouse, 36265, None)
+26/11/16 07:41:52 INFO BlockManagerMasterEndpoint: Registering block manager lakehouse:36265 with 434.4 MiB RAM, BlockManagerId(driver, lakehouse, 36265, None)
+26/11/16 07:41:52 INFO BlockManagerMaster: Registered BlockManager BlockManagerId(driver, lakehouse, 36265, None)
+26/11/16 07:41:52 INFO BlockManager: Initialized BlockManager: BlockManagerId(driver, lakehouse, 36265, None)
+26/11/16 07:42:04 INFO SharedState: Setting hive.metastore.warehouse.dir ('s3a://lakehouse/warehouse') to the value of spark.sql.warehouse.dir.
+Exception in thread "main" java.lang.NoClassDefFoundError: org/apache/hadoop/fs/impl/prefetch/PrefetchingStatistics
+	at java.base/java.lang.ClassLoader.defineClass1(Native Method)
+	at java.base/java.lang.ClassLoader.defineClass(ClassLoader.java:1022)
+	at java.base/java.security.SecureClassLoader.defineClass(SecureClassLoader.java:174)
+	at java.base/jdk.internal.loader.BuiltinClassLoader.defineClass(BuiltinClassLoader.java:800)
+	at java.base/jdk.internal.loader.BuiltinClassLoader.findClassOnClassPathOrNull(BuiltinClassLoader.java:698)
+	at java.base/jdk.internal.loader.BuiltinClassLoader.loadClassOrNull(BuiltinClassLoader.java:621)
+	at java.base/jdk.internal.loader.BuiltinClassLoader.loadClass(BuiltinClassLoader.java:579)
+	at java.base/jdk.internal.loader.ClassLoaders$AppClassLoader.loadClass(ClassLoaders.java:178)
+	at java.base/java.lang.ClassLoader.loadClass(ClassLoader.java:527)
+	at org.apache.hadoop.fs.s3a.S3AFileSystem.initialize(S3AFileSystem.java:519)
+	at org.apache.hadoop.fs.FileSystem.createFileSystem(FileSystem.java:3469)
+	at org.apache.hadoop.fs.FileSystem.access$300(FileSystem.java:174)
+	at org.apache.hadoop.fs.FileSystem$Cache.getInternal(FileSystem.java:3574)
+	at org.apache.hadoop.fs.FileSystem$Cache.get(FileSystem.java:3521)
+	at org.apache.hadoop.fs.FileSystem.get(FileSystem.java:540)
+	at org.apache.hadoop.fs.Path.getFileSystem(Path.java:365)
+	at org.apache.spark.sql.internal.SharedState$.qualifyWarehousePath(SharedState.scala:288)
+	at org.apache.spark.sql.internal.SharedState.liftedTree1$1(SharedState.scala:80)
+	at org.apache.spark.sql.internal.SharedState.<init>(SharedState.scala:79)
+	at org.apache.spark.sql.SparkSession.$anonfun$sharedState$1(SparkSession.scala:143)
+	at scala.Option.getOrElse(Option.scala:189)
+	at org.apache.spark.sql.SparkSession.sharedState$lzycompute(SparkSession.scala:143)
+	at org.apache.spark.sql.SparkSession.sharedState(SparkSession.scala:142)
+	at org.apache.spark.sql.SparkSession.$anonfun$sessionState$2(SparkSession.scala:162)
+	at scala.Option.getOrElse(Option.scala:189)
+	at org.apache.spark.sql.SparkSession.sessionState$lzycompute(SparkSession.scala:160)
+	at org.apache.spark.sql.SparkSession.sessionState(SparkSession.scala:157)
+	at org.apache.spark.sql.hive.thriftserver.SparkSQLEnv$.init(SparkSQLEnv.scala:71)
+	at org.apache.spark.sql.hive.thriftserver.HiveThriftServer2$.main(HiveThriftServer2.scala:96)
+	at org.apache.spark.sql.hive.thriftserver.HiveThriftServer2.main(HiveThriftServer2.scala)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:62)
+	at java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:566)
+	at org.apache.spark.deploy.JavaMainApplication.start(SparkApplication.scala:52)
+	at org.apache.spark.deploy.SparkSubmit.org$apache$spark$deploy$SparkSubmit$$runMain(SparkSubmit.scala:1029)
+	at org.apache.spark.deploy.SparkSubmit.doRunMain$1(SparkSubmit.scala:194)
+	at org.apache.spark.deploy.SparkSubmit.submit(SparkSubmit.scala:217)
+	at org.apache.spark.deploy.SparkSubmit.doSubmit(SparkSubmit.scala:91)
+	at org.apache.spark.deploy.SparkSubmit$$anon$2.doSubmit(SparkSubmit.scala:1120)
+	at org.apache.spark.deploy.SparkSubmit$.main(SparkSubmit.scala:1129)
+	at org.apache.spark.deploy.SparkSubmit.main(SparkSubmit.scala)
+Caused by: java.lang.ClassNotFoundException: org.apache.hadoop.fs.impl.prefetch.PrefetchingStatistics
+	at java.base/jdk.internal.loader.BuiltinClassLoader.loadClass(BuiltinClassLoader.java:581)
+	at java.base/jdk.internal.loader.ClassLoaders$AppClassLoader.loadClass(ClassLoaders.java:178)
+	at java.base/java.lang.ClassLoader.loadClass(ClassLoader.java:527)
+	... 42 more
+26/11/16 07:42:06 INFO SparkContext: Invoking stop() from shutdown hook
+26/11/16 07:42:06 INFO SparkContext: SparkContext is stopping with exitCode 0.
+26/11/16 07:42:06 INFO SparkUI: Stopped Spark web UI at http://lakehouse:4040
+26/11/16 07:42:06 INFO MapOutputTrackerMasterEndpoint: MapOutputTrackerMasterEndpoint stopped!
+26/11/16 07:42:06 INFO MemoryStore: MemoryStore cleared
+26/11/16 07:42:06 INFO BlockManager: BlockManager stopped
+26/11/16 07:42:06 INFO BlockManagerMaster: BlockManagerMaster stopped
+26/11/16 07:42:06 INFO OutputCommitCoordinator$OutputCommitCoordinatorEndpoint: OutputCommitCoordinator stopped!
+26/11/16 07:42:06 INFO SparkContext: Successfully stopped SparkContext
+26/11/16 07:42:06 INFO ShutdownHookManager: Shutdown hook called
+26/11/16 07:42:06 INFO ShutdownHookManager: Deleting directory /tmp/spark-c315e55b-a4de-47fd-b234-a64c3e6bb786
+26/11/16 07:42:06 INFO ShutdownHookManager: Deleting directory /tmp/spark-65d4bb7f-7849-4941-bfe7-b60cc353339b
