@@ -49,6 +49,13 @@ def t_eta_safe(_upstream):
     return out
 
 
+@task(name="4c. Gold: ETA theo bài báo LaDe (Protocol P)", retries=1, retry_delay_seconds=30)
+def t_eta_paper(_upstream):
+    out = steps.build_eta_paper(steps.get_spark())
+    get_run_logger().info(out)
+    return out
+
+
 @task(name="5. Serving: đẩy bảng sang MySQL", retries=1, retry_delay_seconds=30)
 def t_serve(_upstream):
     out = steps.serve_to_mysql(steps.get_spark())
@@ -62,9 +69,10 @@ def delivery_pipeline(train_end: str = "2022-10-01", late_threshold_min: float |
     silver = t_silver(bronze)
     dim = t_dim(silver)
     eta_safe = t_eta_safe(dim)
+    eta_paper = t_eta_paper(dim)
     gold = t_gold(dim, train_end, late_threshold_min)
     served = t_serve(gold)
-    return {"bronze": bronze, "silver": silver, "dim": dim, "eta_safe": eta_safe, "gold": gold, "served": served}
+    return {"bronze": bronze, "silver": silver, "dim": dim, "eta_safe": eta_safe, "eta_paper": eta_paper, "gold": gold, "served": served}
 
 
 if __name__ == "__main__":

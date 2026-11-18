@@ -30,6 +30,8 @@ NUM_FEATURES = ["distance_km", "accept_hour", "dow", "order_rank",
                 "cum_avg_dist", "courier_train_avg_min"]
 ETA_SAFE = BASE + "eta_safe_gold"
 ETA_SAFE_METRICS = BASE + "eta_safe_metrics_gold"
+ETA_PAPER = BASE + "eta_paper_gold"
+ETA_PAPER_METRICS = BASE + "eta_paper_metrics_gold"
 
 
 def get_spark(name="Delivery - Prefect pipeline"):
@@ -283,6 +285,27 @@ def build_eta_safe(spark, seeds=(42, 43, 44)):
     return {"run_id": scored.run_id.iloc[0], "train_rows": len(train), "validation_rows": len(validation),
             "test_rows": len(test), "test_mae": next(row[4] for row in metrics if row[2] == "test" and row[6] == primary_seed),
             "test_rmse": next(row[5] for row in metrics if row[2] == "test" and row[6] == primary_seed), "seeds": list(seeds)}
+
+
+def build_eta_paper(spark, seeds=(42, 43, 44)):
+    """Protocol P: bài toán ETA của bài báo LaDe (truy vấn tại lúc giao xong, nhãn 0-120 phút)."""
+    import pandas as pd
+    from src.eta import paper_protocol
+
+    raw = spark.read.format("delta").load(BRONZE).select(
+        "courier_id", "ds", "lat", "lng", "aoi_type", "accept_time", "delivery_time").toPandas()
+    for c in ("lat", "lng"):
+        raw[c] = pd.to_numeric(raw[c])
+    metrics, stats, scored = paper_protocol.run(raw, seeds)
+    run_id = uuid.uuid4().hex
+    metrics.insert(0, "run_id", run_id)
+    spark.createDataFrame(metrics, "run_id string, model string, seed long, metric string, value double") \
+        .write.format("delta").mode("overwrite").option("overwriteSchema", "true").save(ETA_PAPER_METRICS)
+    spark.createDataFrame(scored.assign(run_id=run_id)).write.format("delta").mode("overwrite") \
+        .option("overwriteSchema", "true").save(ETA_PAPER)
+    write_mysql(spark.createDataFrame(metrics, "run_id string, model string, seed long, metric string, value double"),
+                "eta_paper_metrics")
+    return {"run_id": run_id, **stats}
 
 
 # ------------------------------------------------------------ 5. Serving
