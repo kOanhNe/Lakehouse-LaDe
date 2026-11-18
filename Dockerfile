@@ -75,8 +75,10 @@ RUN rm -f ${SPARK_HOME}/jars/hadoop-aws-*.jar \
 COPY docker/jars/hadoop-aws-3.3.4.jar \
      ${SPARK_HOME}/jars/
 
-COPY docker/jars/aws-java-sdk-bundle-1.12.262.jar \
-     ${SPARK_HOME}/jars/
+# The SDK is intentionally downloaded during the image build.  The exact
+# filename is ignored by git and may differ between local checkouts.
+RUN wget -q -O ${SPARK_HOME}/jars/aws-java-sdk-bundle-1.12.262.jar \
+    https://repo.maven.apache.org/maven2/com/amazonaws/aws-java-sdk-bundle/1.12.262/aws-java-sdk-bundle-1.12.262.jar
 
 # =========================================================
 # 6. HIVE LIBRARY COMPATIBILITY

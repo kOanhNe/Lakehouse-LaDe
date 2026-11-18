@@ -2,6 +2,7 @@
 import os
 import sys
 from datetime import datetime
+import uuid
 
 sys.path.insert(0, os.getenv("NOTEBOOK_DIR", "/home/jovyan/work"))
 
@@ -27,6 +28,8 @@ RUN_INFO = BASE + "pipeline_run_info"
 
 NUM_FEATURES = ["distance_km", "accept_hour", "dow", "order_rank",
                 "cum_avg_dist", "courier_train_avg_min"]
+ETA_SAFE = BASE + "eta_safe_gold"
+ETA_SAFE_METRICS = BASE + "eta_safe_metrics_gold"
 
 
 def get_spark(name="Delivery - Prefect pipeline"):
@@ -233,6 +236,53 @@ def build_fact_and_train(spark, train_end="2022-10-01", late_threshold_min=None)
     out = {r[0]: {"mae": r[3], "rmse": r[4], "r2": r[5]} for r in rows}
     out.update({"train_rows": n_train, "test_rows": n_test, "late_threshold_min": late_threshold_min})
     return out
+
+
+# --------------------------------------------------------- 4b. Leakage-safe ETA
+def build_eta_safe(spark, seeds=(42, 43, 44)):
+    """Run the registered pandas/LightGBM ETA protocol and publish Delta outputs.
+
+    Bronze is converted once to pandas because this dataset is 206K rows; the
+    report records that limitation. Spark/Delta remains responsible for storage
+    and the rest of the Lakehouse ETL.
+    """
+    from src.eta.dataset import build_eta_samples, parse_lade_frame
+    from src.eta.model import evaluate, fit_lightgbm
+
+    raw = spark.read.format("delta").load(BRONZE).toPandas()
+    events = parse_lade_frame(raw)
+    samples = build_eta_samples(events, "B")
+    features = ["pending_order_count", "completed_order_count", "courier_avg_min",
+                "distance_to_last_delivery_km", "candidate_lat", "candidate_lng",
+                "candidate_aoi_type", "candidate_region_id", "accept_hour"]
+    train = samples[samples.split == "train"].copy()
+    validation = samples[samples.split == "validation"].copy()
+    test = samples[samples.split == "test"].copy()
+    medians = train[features].median(numeric_only=True)
+    for frame in [train, validation, test]:
+        frame.loc[:, features] = frame[features].fillna(medians)
+    models = {seed: fit_lightgbm(train, validation, features, seed=seed) for seed in seeds}
+    primary_seed = seeds[0]
+    model = models[primary_seed]
+    scored = test[["order_id", "courier_id", "query_ts", "courier_day",
+                   "target_remaining_minutes"]].copy()
+    scored["prediction_minutes"] = evaluate(model, test, features)["predictions"]
+    scored["run_id"] = uuid.uuid4().hex
+    metrics = []
+    for seed, fitted in models.items():
+        for split, frame in [("validation", validation), ("test", test)]:
+            result = evaluate(fitted, frame, features)
+            metrics.append((scored.run_id.iloc[0], "B", split, result["n"], result["mae"], result["rmse"], seed, "bronze_to_pandas"))
+    spark.createDataFrame(scored).write.format("delta").mode("overwrite").option("overwriteSchema", "true").save(ETA_SAFE)
+    spark.createDataFrame(metrics, "run_id string, protocol string, split string, n long, mae double, rmse double, seed int, execution_mode string") \
+        .write.format("delta").mode("overwrite").option("overwriteSchema", "true").save(ETA_SAFE_METRICS)
+    write_mysql(spark.createDataFrame(
+        metrics,
+        "run_id string, protocol string, split string, n long, mae double, rmse double, seed int, execution_mode string"),
+        "eta_safe_metrics")
+    return {"run_id": scored.run_id.iloc[0], "train_rows": len(train), "validation_rows": len(validation),
+            "test_rows": len(test), "test_mae": next(row[4] for row in metrics if row[2] == "test" and row[6] == primary_seed),
+            "test_rmse": next(row[5] for row in metrics if row[2] == "test" and row[6] == primary_seed), "seeds": list(seeds)}
 
 
 # ------------------------------------------------------------ 5. Serving

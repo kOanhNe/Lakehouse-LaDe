@@ -17,8 +17,8 @@ services:
         condition: service_completed_successfully
     environment:
       MINIO_ENDPOINT: http://minio:9000
-      MINIO_ACCESS_KEY: minioadmin
-      MINIO_SECRET_KEY: minioadmin
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin}
       BUCKET_NAME: lakehouse
     healthcheck:
       test: ["CMD", "bash", "-c", "echo > /dev/tcp/localhost/10001"]
@@ -32,10 +32,10 @@ services:
     image: mysql:8.4
     container_name: mysql
     environment:
-      MYSQL_ROOT_PASSWORD: root
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root}
       MYSQL_DATABASE: delivery_source
-      MYSQL_USER: delivery
-      MYSQL_PASSWORD: delivery
+      MYSQL_USER: ${MYSQL_USER:-delivery}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-delivery}
     ports:
       - "127.0.0.1:3306:3306"
     volumes:
@@ -54,8 +54,8 @@ services:
       - "127.0.0.1:9000:9000"
       - "127.0.0.1:9001:9001"
     environment:
-      MINIO_ROOT_USER: minioadmin
-      MINIO_ROOT_PASSWORD: minioadmin
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-minioadmin}
     command: server /data --console-address ":9001"
     volumes:
       - minio_data:/data
@@ -74,7 +74,10 @@ services:
         condition: service_healthy
     entrypoint: ["/bin/sh", "-c"]
     command:
-      - "mc alias set local http://minio:9000 minioadmin minioadmin && mc mb --ignore-existing local/lakehouse"
+      - "mc alias set local http://minio:9000 $${MINIO_ACCESS_KEY} $${MINIO_SECRET_KEY} && mc mb --ignore-existing local/lakehouse"
+    environment:
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin}
     networks: [lakehouse-net]
 
   jupyter:
@@ -89,20 +92,24 @@ services:
     volumes:
       - ./notebooks:/home/jovyan/work
       - ./pipeline:/home/jovyan/pipeline
+      - ./scripts:/home/jovyan/work/scripts:ro
+      - ./src:/home/jovyan/work/src:ro
+      - ./config:/home/jovyan/work/config:ro
       - ./data:/home/jovyan/data:ro
-      - ./reports:/home/jovyan/reports:ro
-      - spark_ivy:/home/jovyan/.ivy2
+      - ./reports:/home/jovyan/reports
     environment:
       JUPYTER_ENABLE_LAB: "yes"
       MINIO_ENDPOINT: http://minio:9000
-      MINIO_ACCESS_KEY: minioadmin
-      MINIO_SECRET_KEY: minioadmin
-      MYSQL_USER: delivery
-      MYSQL_PASSWORD: delivery
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin}
+      MYSQL_USER: ${MYSQL_USER:-delivery}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-delivery}
       PREFECT_API_URL: http://prefect:4200/api
       PYTHONPATH: /usr/local/spark/python:/usr/local/spark/python/lib/py4j-0.10.9.7-src.zip
+      SPARK_IVY_DIR: /tmp/lakehouse-ivy
       PYSPARK_SUBMIT_ARGS: >-
         --master local[2]
+        --conf spark.jars.ivy=/tmp/lakehouse-ivy
         --packages org.apache.hadoop:hadoop-aws:3.3.4,com.amazonaws:aws-java-sdk-bundle:1.12.262,io.delta:delta-spark_2.12:3.3.2,com.mysql:mysql-connector-j:8.0.33
         pyspark-shell
     depends_on:
@@ -137,8 +144,8 @@ services:
     container_name: dashboard
     environment:
       MYSQL_HOST: mysql
-      MYSQL_USER: delivery
-      MYSQL_PASSWORD: delivery
+      MYSQL_USER: ${MYSQL_USER:-delivery}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-delivery}
       MYSQL_DB: delivery_source
     volumes:
       - ./dashboard:/app

@@ -42,6 +42,13 @@ def t_gold(_upstream, train_end, late_threshold_min):
     return out
 
 
+@task(name="4b. Gold: leakage-safe ETA", retries=1, retry_delay_seconds=30)
+def t_eta_safe(_upstream):
+    out = steps.build_eta_safe(steps.get_spark())
+    get_run_logger().info(out)
+    return out
+
+
 @task(name="5. Serving: đẩy bảng sang MySQL", retries=1, retry_delay_seconds=30)
 def t_serve(_upstream):
     out = steps.serve_to_mysql(steps.get_spark())
@@ -54,9 +61,10 @@ def delivery_pipeline(train_end: str = "2022-10-01", late_threshold_min: float |
     bronze = t_bronze()
     silver = t_silver(bronze)
     dim = t_dim(silver)
+    eta_safe = t_eta_safe(dim)
     gold = t_gold(dim, train_end, late_threshold_min)
     served = t_serve(gold)
-    return {"bronze": bronze, "silver": silver, "dim": dim, "gold": gold, "served": served}
+    return {"bronze": bronze, "silver": silver, "dim": dim, "eta_safe": eta_safe, "gold": gold, "served": served}
 
 
 if __name__ == "__main__":

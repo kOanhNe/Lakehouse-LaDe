@@ -1,0 +1,105 @@
+version: 1
+dataset: LaDe-D-Yantai
+assumptions:
+  timezone: Asia/Shanghai
+  source_year: 2022
+  destination_coordinates_known_at: accept_ts
+  delivery_gps_meaning: observed_completion_location_only
+
+layers:
+  bronze:
+    columns:
+      - {name: order_id, dtype: string, status: allowed}
+      - {name: region_id, dtype: string, status: allowed}
+      - {name: city, dtype: string, status: allowed}
+      - {name: courier_id, dtype: string, status: allowed}
+      - {name: lng, dtype: string, status: allowed}
+      - {name: lat, dtype: string, status: allowed}
+      - {name: aoi_id, dtype: string, status: allowed}
+      - {name: aoi_type, dtype: string, status: allowed}
+      - {name: accept_time, dtype: string, status: allowed}
+      - {name: accept_gps_time, dtype: string, status: allowed}
+      - {name: accept_gps_lng, dtype: string, status: allowed}
+      - {name: accept_gps_lat, dtype: string, status: allowed}
+      - {name: delivery_time, dtype: string, status: allowed}
+      - {name: delivery_gps_time, dtype: string, status: allowed}
+      - {name: delivery_gps_lng, dtype: string, status: allowed}
+      - {name: delivery_gps_lat, dtype: string, status: allowed}
+      - {name: ds, dtype: string, status: allowed}
+
+  silver:
+    columns:
+      - {name: order_id, dtype: string, status: allowed}
+      - {name: region_id, dtype: int64, status: allowed}
+      - {name: city, dtype: string, status: allowed}
+      - {name: courier_id, dtype: int64, status: allowed}
+      - {name: lng, dtype: float64, status: allowed}
+      - {name: lat, dtype: float64, status: allowed}
+      - {name: aoi_id, dtype: int64, status: allowed}
+      - {name: aoi_type, dtype: int64, status: allowed}
+      - {name: accept_ts, dtype: timestamp, status: allowed}
+      - {name: accept_gps_ts, dtype: timestamp, status: allowed}
+      - {name: accept_gps_lng, dtype: float64, status: allowed}
+      - {name: accept_gps_lat, dtype: float64, status: allowed}
+      - {name: delivery_ts, dtype: timestamp, status: allowed}
+      - {name: delivery_gps_ts, dtype: timestamp, status: allowed}
+      - {name: delivery_gps_lng, dtype: float64, status: allowed}
+      - {name: delivery_gps_lat, dtype: float64, status: allowed}
+      - {name: ds, dtype: string, status: allowed}
+      - {name: ds_date, dtype: date, status: allowed}
+      - {name: delivery_minutes, dtype: float64, status: label}
+      - {name: day_gap, dtype: int64, status: allowed}
+      - {name: distance_km, dtype: float64, status: allowed}
+      - {name: delivery_stop_distance_km, dtype: float64, status: allowed}
+      - {name: source_file, dtype: string, status: ignored, reason: lineage_metadata}
+      - {name: run_id, dtype: string, status: ignored, reason: lineage_metadata}
+
+  gold:
+    columns:
+      - {name: order_id, dtype: string, status: allowed}
+      - {name: courier_id, dtype: int64, status: allowed}
+      - {name: query_ts, dtype: timestamp, status: allowed}
+      - {name: target_remaining_minutes, dtype: float64, status: label}
+      - {name: courier_day, dtype: string, status: ignored, reason: grouping_key_only}
+      - {name: run_id, dtype: string, status: ignored, reason: lineage_metadata}
+
+feature_roles:
+  completed:
+    - order_id
+    - courier_id
+    - accept_ts
+    - delivery_ts
+    - accept_gps_lng
+    - accept_gps_lat
+    - delivery_gps_lng
+    - delivery_gps_lat
+    - lng
+    - lat
+    - aoi_id
+    - aoi_type
+    - region_id
+  pending:
+    - order_id
+    - courier_id
+    - accept_ts
+    - accept_gps_lng
+    - accept_gps_lat
+    - lng
+    - lat
+    - aoi_id
+    - aoi_type
+    - region_id
+  candidate:
+    - order_id
+    - courier_id
+    - accept_ts
+    - accept_gps_lng
+    - accept_gps_lat
+    - lng
+    - lat
+    - aoi_id
+    - aoi_type
+    - region_id
+  label:
+    - target_remaining_minutes
+    - delivery_minutes

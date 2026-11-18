@@ -1,242 +1,219 @@
+"""Dashboard tiếng Việt cho Lakehouse LaDe-D Yantai.
+
+Dashboard chỉ đọc các bảng serving trong MySQL. Nó không chạy lại pipeline và
+không tính lại metric từ dữ liệu raw, vì vậy số liệu hiển thị có thể truy vết
+về một lần chạy Prefect cụ thể.
+"""
+from __future__ import annotations
+
 import os
+from datetime import datetime
 
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
 import streamlit as st
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 
-st.set_page_config(page_title="Giao hàng Yantai - Dashboard", layout="wide")
+st.set_page_config(page_title="LaDe-D | Lakehouse Analytics", page_icon="🚚", layout="wide",
+                   initial_sidebar_state="expanded")
 
-URL = (f"mysql+pymysql://{os.getenv('MYSQL_USER', 'delivery')}:{os.getenv('MYSQL_PASSWORD', 'delivery')}"
-       f"@{os.getenv('MYSQL_HOST', 'mysql')}:{os.getenv('MYSQL_PORT', '3306')}/"
-       f"{os.getenv('MYSQL_DB', 'delivery_source')}")
+st.markdown("""
+<style>
+.block-container {padding-top: 1.2rem; padding-bottom: 2rem; max-width: 1500px;}
+[data-testid="stMetricValue"] {font-size: 1.65rem;}
+.hero {background: linear-gradient(120deg,#102a43,#167d9a); color:white; padding:1.5rem 2rem;
+       border-radius:16px; margin-bottom:1rem;}
+.hero h1 {margin:0 0 .35rem 0; font-size:2.1rem;}
+.hero p {margin:0; opacity:.9; font-size:1rem;}
+.note {background:#f0f7fa; border-left:4px solid #168aad; padding:.7rem 1rem; border-radius:4px;}
+</style>
+""", unsafe_allow_html=True)
+
+
+DB_URL = (f"mysql+pymysql://{os.getenv('MYSQL_USER', 'delivery')}:{os.getenv('MYSQL_PASSWORD', 'delivery')}"
+          f"@{os.getenv('MYSQL_HOST', 'mysql')}:{os.getenv('MYSQL_PORT', '3306')}/"
+          f"{os.getenv('MYSQL_DB', 'delivery_source')}")
 
 
 @st.cache_resource
-def engine():
-    return create_engine(URL, pool_pre_ping=True)
+def db_engine():
+    return create_engine(DB_URL, pool_pre_ping=True, pool_recycle=1800)
 
 
-@st.cache_data(ttl=120)
-def load(table):
+@st.cache_data(ttl=120, show_spinner=False)
+def read_table(name: str) -> pd.DataFrame | None:
+    allowed = {
+        "agg_overview", "agg_region_daily", "agg_hourly", "agg_region_summary",
+        "agg_region_error", "agg_courier_performance", "ml_metrics",
+        "ml_feature_importance", "eta_prediction_sample", "eta_safe_metrics",
+        "pipeline_run_info",
+    }
+    if name not in allowed:
+        raise ValueError(name)
     try:
-        return pd.read_sql(f"SELECT * FROM {table}", engine())
+        with db_engine().connect() as connection:
+            return pd.read_sql(text(f"SELECT * FROM `{name}`"), connection)
     except Exception:
         return None
 
 
-courier = load("agg_courier_performance")
-daily = load("agg_region_daily")
-hourly = load("agg_hourly")
-metrics = load("ml_metrics")
-imp = load("ml_feature_importance")
-reg_err = load("agg_region_error")
-sample = load("eta_prediction_sample")
-info = load("pipeline_run_info")
-reg_sum = load("agg_region_summary")
-overview = load("agg_overview")
+def fmt_minutes(value) -> str:
+    return "—" if pd.isna(value) else f"{float(value):,.1f} phút"
 
-st.title("Dashboard giao hàng Yantai (LaDe-D)")
-if courier is None or daily is None:
-    st.warning("Chưa có dữ liệu. Hãy chạy pipeline Prefect trước, rồi tải lại trang.")
+
+def pct(value) -> str:
+    return "—" if pd.isna(value) else f"{float(value) * 100:.1f}%"
+
+
+def chart(fig, height=380):
+    fig.update_layout(template="plotly_white", height=height, margin=dict(l=10, r=10, t=55, b=10),
+                      legend=dict(orientation="h", y=1.08, x=0))
+    st.plotly_chart(fig, use_container_width=True, config={"displaylogo": False})
+
+
+tables = {name: read_table(name) for name in [
+    "agg_overview", "agg_region_daily", "agg_hourly", "agg_region_summary",
+    "agg_region_error", "agg_courier_performance", "ml_metrics",
+    "ml_feature_importance", "eta_prediction_sample", "eta_safe_metrics",
+    "pipeline_run_info",
+]}
+
+overview = tables["agg_overview"]
+if overview is None or overview.empty:
+    st.markdown('<div class="hero"><h1>🚚 LaDe-D Yantai</h1><p>Dashboard phân tích giao hàng trên kiến trúc Lakehouse</p></div>', unsafe_allow_html=True)
+    st.warning("Chưa có dữ liệu serving trong MySQL. Hãy chạy pipeline Prefect trước, sau đó bấm Rerun.")
+    st.code("docker compose exec jupyter python /home/jovyan/pipeline/flow.py", language="powershell")
     st.stop()
 
-thr = float(courier["late_threshold_min"].iloc[0])
-if info is not None and len(info):
-    st.caption(f"Lần chạy pipeline gần nhất: {info['run_ts'].iloc[0]}.")
+o = overview.iloc[0]
+run_info = tables["pipeline_run_info"]
+run_text = "Chưa có thông tin lần chạy"
+if run_info is not None and not run_info.empty and "run_ts" in run_info:
+    run_text = f"Lần chạy fact gần nhất: {run_info.iloc[0]['run_ts']}"
 
-with st.expander("Cách đọc các chỉ số"):
-    st.markdown(
-        f"- **Thời gian xử lý**: từ lúc shipper nhận đơn đến lúc giao xong, tính bằng phút.\n"
-        f"- **Trung vị**: mốc mà một nửa số đơn nhanh hơn. Dùng trung vị vì một số đơn kéo dài hàng chục giờ "
-        f"làm số trung bình cao hơn thực tế.\n"
-        f"- **Đơn chậm**: đơn có thời gian xử lý hơn {thr:.0f} phút (mốc mà 10% đơn lâu nhất của dữ liệu huấn luyện vượt qua).\n"
-        f"- **Khu vực**: mã số khu vực do bộ dữ liệu LaDe cung cấp (đã ẩn danh), không có tên quận hoặc huyện.\n"
-        f"- **ETA**: thời gian giao dự kiến, mô hình dự đoán ngay khi shipper nhận đơn.")
+st.markdown(f'<div class="hero"><h1>🚚 LaDe-D Yantai</h1><p>Phân tích chất lượng giao hàng, hiệu suất shipper và mô hình ETA · {run_text}</p></div>', unsafe_allow_html=True)
 
-tab1, tab2, tab3, tab4 = st.tabs(["Tổng quan", "Shipper", "Khu vực & giờ", "Mô hình ETA"])
+with st.sidebar:
+    st.header("Bộ lọc dashboard")
+    st.caption("Các biểu đồ đọc từ bảng serving đã được Prefect ghi vào MySQL.")
+    if st.button("🔄 Làm mới dữ liệu", use_container_width=True):
+        st.cache_data.clear()
+        st.rerun()
+    st.divider()
+    st.subheader("Thông tin hệ thống")
+    st.write("**Nguồn:** LaDe-D · Yantai")
+    st.write("**Grain fact:** một dòng / đơn hàng")
+    st.write("**Đơn vị:** phút, km")
+    st.caption("Dashboard không thay thế kiểm định dữ liệu và không dùng để chọn model trên test.")
 
-# ---------------------------------------------------------------- Tổng quan
-with tab1:
-    if overview is not None and len(overview):
-        o = overview.iloc[0]
-        c1, c2, c3, c4, c5 = st.columns(5)
-        c1.metric("Tổng số đơn", f"{int(o['total_orders']):,}")
-        c2.metric("Thời gian xử lý trung vị", f"{o['median_delivery_minutes']:,.0f} phút")
-        c3.metric("Tỷ lệ đơn chậm", f"{o['late_rate']:.1%}")
-        c4.metric("Đơn mất hơn 24 giờ", f"{o['over_24h_rate']:.1%}")
-        c5.metric("Số shipper", f"{int(o['couriers']):,}")
-        st.caption(f"Trung bình {o['avg_delivery_minutes']:,.0f} phút, cao hơn trung vị vì có các đơn kéo dài rất lâu. "
-                   f"10% đơn lâu nhất mất hơn {o['p90_delivery_minutes']:,.0f} phút.")
-    else:
-        total = int(daily["total_orders"].sum())
-        c1, c2 = st.columns(2)
-        c1.metric("Tổng số đơn", f"{total:,}")
-        c2.metric("Số shipper", f"{courier['courier_id'].nunique():,}")
-        st.info("Chạy lại pipeline để có thêm các chỉ số tổng quan (trung vị, đơn mất hơn 24 giờ).")
+tab_overview, tab_ops, tab_model, tab_data = st.tabs([
+    "📊 Tổng quan", "🛵 Shipper & khu vực", "🤖 Mô hình ETA", "🔎 Chất lượng & lineage"
+])
 
-    regions = sorted(daily["region_id"].unique())
-    pick = st.multiselect("Khu vực (mã số)", regions, default=regions)
-    d = daily[daily["region_id"].isin(pick)].copy()
-    d["wm"] = d["avg_delivery_minutes"] * d["total_orders"]
-    g = d.groupby("order_date").agg(total_orders=("total_orders", "sum"), wm=("wm", "sum")).reset_index()
-    g["avg_delivery_minutes"] = g["wm"] / g["total_orders"]
-    lbl = {"order_date": "Ngày", "total_orders": "Số đơn", "avg_delivery_minutes": "Phút"}
-    a, b = st.columns(2)
-    a.plotly_chart(px.line(g, x="order_date", y="total_orders", labels=lbl, title="Số đơn theo ngày"),
-                   use_container_width=True)
-    b.plotly_chart(px.line(g, x="order_date", y="avg_delivery_minutes", labels=lbl,
-                           title="Thời gian xử lý trung bình theo ngày (phút)"), use_container_width=True)
-    if sample is not None:
-        cap = float(sample["actual_minutes"].quantile(0.99))
-        fig = px.histogram(sample[sample["actual_minutes"] <= cap], x="actual_minutes", nbins=50,
-                           labels={"actual_minutes": "Thời gian xử lý (phút)", "count": "Số đơn"},
-                           title="Phân bố thời gian xử lý (mẫu 3.000 đơn thuộc tập kiểm tra, đã loại 1% đơn dài nhất)")
-        st.plotly_chart(fig, use_container_width=True)
+with tab_overview:
+    st.subheader("Bức tranh chung")
+    c1, c2, c3, c4, c5 = st.columns(5)
+    c1.metric("Tổng đơn", f"{int(o['total_orders']):,}")
+    c2.metric("Shipper", f"{int(o['couriers']):,}")
+    c3.metric("Thời gian trung vị", fmt_minutes(o['median_delivery_minutes']))
+    c4.metric("Tỷ lệ đơn chậm", pct(o['late_rate']))
+    c5.metric("Đơn trên 24 giờ", pct(o['over_24h_rate']))
+    st.markdown("<div class='note'>Thời gian xử lý là từ lúc nhận đơn đến lúc hoàn tất giao, không phải thời gian lái xe. Trung vị được ưu tiên vì dữ liệu có một số đơn rất dài.</div>", unsafe_allow_html=True)
 
-# ------------------------------------------------------------------ Shipper
-with tab2:
-    st.write("Xếp hạng shipper. Mỗi khu vực có đặc thù riêng (xem tab Khu vực & giờ), "
-             "nên nên so sánh shipper trong cùng một khu vực.")
-    f1, f2 = st.columns(2)
-    reg_opts = sorted(courier["main_region_id"].dropna().unique())
-    reg_pick = f1.multiselect("Khu vực chính của shipper", reg_opts, default=reg_opts)
-    min_orders = f2.slider("Số đơn tối thiểu", 0, int(courier["total_orders"].max()), 200, step=50)
-    metric_labels = {"late_rate": "Tỷ lệ đơn chậm", "median_delivery_minutes": "Thời gian xử lý trung vị",
-                     "avg_delivery_minutes": "Thời gian xử lý trung bình", "total_orders": "Tổng số đơn"}
-    key = st.selectbox("Xếp hạng theo", list(metric_labels), format_func=metric_labels.get)
-    asc = st.checkbox("Thấp nhất trước (tốt nhất với thời gian và tỷ lệ chậm)", value=key != "total_orders")
-    c = courier[(courier["total_orders"] >= min_orders) & (courier["main_region_id"].isin(reg_pick))]
-    c = c.sort_values(key, ascending=asc)
-    if c.empty:
-        st.info("Không có shipper nào thỏa bộ lọc.")
-    else:
-        top = c.head(15).copy()
-        top["shipper"] = "Shipper " + top["courier_id"].astype(str)
-        direction = "thấp" if asc else "cao"
-        fig = px.bar(top, x=key, y="shipper", orientation="h", text=key,
-                     labels={key: metric_labels[key], "shipper": ""},
-                     title=f"15 shipper có {metric_labels[key].lower()} {direction} nhất")
-        fig.update_yaxes(type="category", autorange="reversed")
-        fig.update_traces(texttemplate="%{text:.3g}", textposition="outside")
-        st.plotly_chart(fig, use_container_width=True)
-        st.plotly_chart(
-            px.scatter(c, x="total_orders", y="median_delivery_minutes", color="late_rate",
-                       hover_data=["courier_id", "main_region_id"],
-                       labels={"total_orders": "Số đơn", "median_delivery_minutes": "Thời gian xử lý trung vị (phút)",
-                               "late_rate": "Tỷ lệ chậm", "courier_id": "Mã shipper",
-                               "main_region_id": "Khu vực chính"},
-                       title="Mỗi chấm là một shipper"), use_container_width=True)
-        t = c.drop(columns=["late_threshold_min", "max_delivery_minutes"]).copy()
-        t["late_rate"] = (t["late_rate"] * 100).round(1)
-        t = t.rename(columns={
-            "courier_id": "Mã shipper", "main_region_id": "Khu vực chính", "total_orders": "Số đơn",
-            "avg_distance_km": "Khoảng cách TB (km)", "avg_delivery_minutes": "Thời gian TB (phút)",
-            "median_delivery_minutes": "Trung vị (phút)", "late_rate": "Tỷ lệ chậm (%)",
-            "avg_pred_eta_minutes": "ETA dự đoán TB (phút)",
-            "mae_gbt_test": "Sai số dự đoán MAE (phút)"})
-        st.dataframe(t, use_container_width=True, hide_index=True)
-        st.caption("Hai cột ETA và sai số chỉ tính trên các đơn thuộc tập kiểm tra (giai đoạn cuối dữ liệu), "
-                   "nên có thể trống với shipper không có đơn trong giai đoạn này.")
-
-# ------------------------------------------------------------ Khu vực & giờ
-with tab3:
-    st.subheader("Theo khu vực")
-    if reg_sum is None:
-        st.info("Chạy lại pipeline để có bảng tổng hợp theo khu vực.")
-    else:
-        rs = reg_sum.copy()
-        rs["khu_vuc"] = "KV " + rs["region_id"].astype(str)
-        bad = rs[rs["over_24h_rate"] > 0.10].sort_values("over_24h_rate", ascending=False)
-        for _, r_ in bad.iterrows():
-            st.warning(f"Khu vực {int(r_['region_id'])}: {r_['over_24h_rate']:.0%} số đơn mất hơn 24 giờ "
-                       f"(trung vị {r_['median_delivery_minutes']:,.0f} phút, {int(r_['total_orders']):,} đơn). "
-                       f"Khu vực này vận hành khác các khu vực còn lại nên kéo số trung bình chung lên.")
-        order = rs.sort_values("median_delivery_minutes")["khu_vuc"].tolist()
+    daily = tables["agg_region_daily"]
+    if daily is not None and not daily.empty:
+        regions = sorted(daily.region_id.dropna().unique().tolist())
+        selected = st.multiselect("Chọn khu vực", regions, default=regions, key="overview_regions")
+        d = daily[daily.region_id.isin(selected)].copy()
+        d["order_date"] = pd.to_datetime(d["order_date"])
+        d["weighted_minutes"] = d.avg_delivery_minutes * d.total_orders
+        trend = d.groupby("order_date", as_index=False).agg(total_orders=("total_orders", "sum"), weighted_minutes=("weighted_minutes", "sum"))
+        trend["avg_delivery_minutes"] = trend.weighted_minutes / trend.total_orders
         a, b = st.columns(2)
-        fig = px.bar(rs, x="khu_vuc", y="median_delivery_minutes",
-                     labels={"khu_vuc": "Khu vực", "median_delivery_minutes": "Phút"},
-                     title="Thời gian xử lý trung vị theo khu vực")
-        fig.update_xaxes(type="category", categoryorder="array", categoryarray=order)
-        a.plotly_chart(fig, use_container_width=True)
-        fig = px.bar(rs, x="khu_vuc", y="late_rate",
-                     labels={"khu_vuc": "Khu vực", "late_rate": "Tỷ lệ đơn chậm"},
-                     title="Tỷ lệ đơn chậm theo khu vực")
-        fig.update_xaxes(type="category", categoryorder="array", categoryarray=order)
-        fig.update_yaxes(tickformat=".0%")
-        b.plotly_chart(fig, use_container_width=True)
-        t = rs.drop(columns=["khu_vuc"]).copy()
-        for col in ["late_rate", "over_24h_rate"]:
-            t[col] = (t[col] * 100).round(1)
-        t = t.sort_values("median_delivery_minutes").rename(columns={
-            "region_id": "Khu vực", "total_orders": "Số đơn", "couriers": "Số shipper",
-            "avg_delivery_minutes": "TB (phút)", "median_delivery_minutes": "Trung vị (phút)",
-            "p90_delivery_minutes": "P90 (phút)", "late_rate": "Tỷ lệ chậm (%)",
-            "over_24h_rate": "Đơn > 24 giờ (%)"})
-        st.dataframe(t, use_container_width=True, hide_index=True)
+        with a:
+            chart(px.area(trend, x="order_date", y="total_orders", labels={"order_date": "Ngày", "total_orders": "Số đơn"}, title="Số đơn theo ngày"))
+        with b:
+            chart(px.line(trend, x="order_date", y="avg_delivery_minutes", markers=True, labels={"order_date": "Ngày", "avg_delivery_minutes": "Phút"}, title="Thời gian trung bình theo ngày"))
 
-    st.subheader("Theo giờ nhận đơn")
-    if hourly is not None:
-        h = hourly.sort_values("accept_hour")
+    sample = tables["eta_prediction_sample"]
+    if sample is not None and not sample.empty:
+        st.subheader("Phân phối thời gian xử lý")
+        cap = sample.actual_minutes.quantile(.99)
+        chart(px.histogram(sample[sample.actual_minutes <= cap], x="actual_minutes", nbins=55,
+                           labels={"actual_minutes": "Thời gian (phút)"}, title="Mẫu 3.000 đơn kiểm tra, cắt hiển thị 1% đuôi dài nhất"), 350)
+
+with tab_ops:
+    courier = tables["agg_courier_performance"]
+    region = tables["agg_region_summary"]
+    if courier is not None and not courier.empty:
+        st.subheader("Hiệu suất shipper")
+        f1, f2, f3 = st.columns(3)
+        region_options = sorted(courier.main_region_id.dropna().unique().tolist())
+        chosen_regions = f1.multiselect("Khu vực chính", region_options, default=region_options, key="courier_regions")
+        min_orders = f2.slider("Số đơn tối thiểu", 0, int(courier.total_orders.max()), min(200, int(courier.total_orders.max())), step=25)
+        rank_key = f3.selectbox("Xếp hạng theo", ["late_rate", "median_delivery_minutes", "avg_delivery_minutes", "total_orders"], format_func=lambda x: {"late_rate":"Tỷ lệ chậm", "median_delivery_minutes":"Trung vị", "avg_delivery_minutes":"Trung bình", "total_orders":"Số đơn"}[x])
+        c = courier[(courier.total_orders >= min_orders) & courier.main_region_id.isin(chosen_regions)].copy().sort_values(rank_key, ascending=rank_key != "total_orders")
+        if c.empty:
+            st.info("Không có shipper phù hợp bộ lọc.")
+        else:
+            top = c.head(15).copy()
+            top["shipper"] = "Shipper " + top.courier_id.astype(str)
+            chart(px.bar(top, x=rank_key, y="shipper", orientation="h", text=rank_key, title="15 shipper theo tiêu chí đã chọn", labels={rank_key: rank_key, "shipper":""}), 500)
+            chart(px.scatter(c, x="total_orders", y="median_delivery_minutes", color="late_rate", hover_data=["courier_id", "main_region_id"], title="Số đơn, thời gian trung vị và tỷ lệ chậm"), 430)
+            show = c.copy()
+            show["late_rate"] = show.late_rate.map(lambda x: f"{x:.1%}")
+            st.dataframe(show, use_container_width=True, hide_index=True)
+    if region is not None and not region.empty:
+        st.subheader("So sánh khu vực")
+        rs = region.copy(); rs["khu_vuc"] = "KV " + rs.region_id.astype(str)
         a, b = st.columns(2)
-        a.plotly_chart(px.bar(h, x="accept_hour", y="total_orders",
-                              labels={"accept_hour": "Giờ nhận đơn", "total_orders": "Số đơn"},
-                              title="Số đơn theo giờ nhận đơn"), use_container_width=True)
-        hv = h[h["total_orders"] >= 300]
-        b.plotly_chart(px.line(hv, x="accept_hour", y="median_delivery_minutes", markers=True,
-                               labels={"accept_hour": "Giờ nhận đơn", "median_delivery_minutes": "Phút"},
-                               title="Thời gian xử lý trung vị theo giờ nhận đơn"), use_container_width=True)
-        st.caption("Phần lớn đơn được nhận trong khoảng 8-11 giờ sáng. Đơn nhận càng muộn trong ngày thì thời gian "
-                   "xử lý càng ngắn. Biểu đồ bên phải chỉ vẽ các giờ có ít nhất 300 đơn vì giờ ít đơn thì số liệu "
-                   "không ổn định.")
+        with a:
+            chart(px.bar(rs.sort_values("median_delivery_minutes"), x="khu_vuc", y="median_delivery_minutes", title="Thời gian trung vị theo khu vực", labels={"khu_vuc":"Khu vực", "median_delivery_minutes":"Phút"}))
+        with b:
+            chart(px.bar(rs.sort_values("late_rate", ascending=False), x="khu_vuc", y="late_rate", title="Tỷ lệ đơn chậm theo khu vực", labels={"khu_vuc":"Khu vực", "late_rate":"Tỷ lệ"}), 380)
+            st.dataframe(rs, use_container_width=True, hide_index=True)
+    hourly = tables["agg_hourly"]
+    if hourly is not None and not hourly.empty:
+        st.subheader("Theo giờ nhận đơn")
+        chart(px.line(hourly.sort_values("accept_hour"), x="accept_hour", y=["total_orders", "median_delivery_minutes"], markers=True, title="Số đơn và thời gian trung vị theo giờ nhận"), 420)
 
-# ---------------------------------------------------------------- Mô hình ETA
-with tab4:
-    if metrics is None:
-        st.info("Chưa có kết quả mô hình.")
+with tab_model:
+    st.subheader("Đánh giá mô hình")
+    st.markdown("Mô hình **ETA leakage-safe** trả lời: tại thời điểm query, đơn còn khoảng bao nhiêu phút nữa sẽ hoàn tất? `delivery_gps` của đơn pending/candidate chưa giao không được dùng.")
+    safe = tables["eta_safe_metrics"]
+    if safe is not None and not safe.empty:
+        st.success("Đã có metric của Protocol B leakage-safe.")
+        st.dataframe(safe, use_container_width=True, hide_index=True)
+        test_safe = safe[safe.split.astype(str).str.lower().eq("test")]
+        if not test_safe.empty:
+            chart(px.bar(test_safe, x="seed", y=["mae", "rmse"], barmode="group", title="ETA leakage-safe theo seed", labels={"seed":"Seed", "value":"Phút"}), 380)
     else:
-        st.write("Dự đoán thời gian xử lý đơn ngay lúc shipper nhận đơn. Đánh giá trên tập kiểm tra theo thời gian "
-                 "(các đơn sau mốc cắt), so với baseline đoán bằng một con số cố định.")
-        st.dataframe(metrics.rename(columns={"model": "Mô hình", "cohort": "Tập đánh giá", "n": "Số đơn",
-                                             "mae": "MAE (phút)", "rmse": "RMSE (phút)", "r2": "R²",
-                                             "run_ts": "Thời điểm chạy"}),
-                     use_container_width=True, hide_index=True)
-        st.plotly_chart(px.bar(metrics, x="model", y=["mae", "rmse"], barmode="group",
-                               labels={"value": "Phút", "model": "Mô hình", "variable": "Chỉ số"},
-                               title="So sánh sai số giữa các mô hình (thấp hơn là tốt hơn)"),
-                        use_container_width=True)
-        st.caption("MAE là sai lệch trung bình giữa dự đoán và thực tế, tính bằng phút. "
-                   "RMSE tương tự nhưng phạt nặng hơn các đơn sai nhiều. R² càng gần 1 càng tốt, "
-                   "gần 0 hoặc âm nghĩa là mô hình không hơn đoán một con số cố định. "
-                   "Benchmark bài báo gốc (nếu có) có thể đo trên bài toán và cách lọc dữ liệu khác, "
-                   "nên chỉ mang tính tham khảo.")
-    a, b = st.columns(2)
-    if imp is not None:
-        names = {"distance_km": "Khoảng cách", "accept_hour": "Giờ nhận đơn", "dow": "Thứ trong tuần",
-                 "order_rank": "Thứ tự đơn trong ngày", "cum_avg_dist": "Khoảng cách TB các đơn trước",
-                 "courier_train_avg_min": "Thời gian TB lịch sử của shipper", "aoi_type": "Loại điểm giao",
-                 "region_id": "Khu vực"}
-        i2 = imp.copy()
-        i2["feature"] = i2["feature"].map(names).fillna(i2["feature"])
-        a.plotly_chart(px.bar(i2.sort_values("importance"), x="importance", y="feature", orientation="h",
-                              labels={"importance": "Mức quan trọng", "feature": ""},
-                              title="Mô hình GBT dựa vào yếu tố nào nhiều nhất"), use_container_width=True)
-    if reg_err is not None:
-        re_ = reg_err.copy()
-        re_["khu_vuc"] = "KV " + re_["region_id"].astype(str)
-        fig = px.bar(re_, x="khu_vuc", y=["mae_baseline", "mae_lr", "mae_gbt"], barmode="group",
-                     labels={"khu_vuc": "Khu vực", "value": "MAE (phút)", "variable": ""},
-                     title="Sai số MAE theo khu vực (thấp hơn là tốt hơn)")
-        fig.update_xaxes(type="category")
-        mnames = {"mae_baseline": "Baseline (trung vị)", "mae_lr": "Linear Regression", "mae_gbt": "GBT"}
-        fig.for_each_trace(lambda t: t.update(name=mnames.get(t.name, t.name)))
-        b.plotly_chart(fig, use_container_width=True)
-    if sample is not None:
-        fig = px.scatter(sample, x="actual_minutes", y="pred_gbt", opacity=0.4,
-                         labels={"actual_minutes": "Thực tế (phút)", "pred_gbt": "Dự đoán GBT (phút)"},
-                         title="Thực tế và dự đoán (mẫu 3.000 đơn). Càng sát đường nét đứt càng chính xác")
-        m = float(sample["actual_minutes"].quantile(0.99))
-        fig.add_shape(type="line", x0=0, y0=0, x1=m, y1=m, line=dict(dash="dash"))
-        fig.update_xaxes(range=[0, m])
-        fig.update_yaxes(range=[0, m])
-        st.plotly_chart(fig, use_container_width=True)
+        st.info("Chưa có bảng `eta_safe_metrics`. Pipeline cũ vẫn có thể hiển thị bên dưới; chạy lại image/pipeline mới để ghi thêm bảng này.")
+    metrics = tables["ml_metrics"]
+    if metrics is not None and not metrics.empty:
+        st.subheader("Baseline và mô hình cũ")
+        st.caption("Bảng này là bài toán phụ: dự đoán delivery_minutes từ lúc nhận đơn. Không so trực tiếp với Protocol B.")
+        st.dataframe(metrics, use_container_width=True, hide_index=True)
+        plot = metrics.dropna(subset=["mae", "rmse"]).copy()
+        if not plot.empty:
+            chart(px.bar(plot, x="model", y=["mae", "rmse"], barmode="group", title="Sai số bài toán phụ", labels={"model":"Mô hình", "value":"Phút"}), 400)
+    imp = tables["ml_feature_importance"]
+    if imp is not None and not imp.empty:
+        st.subheader("Độ quan trọng feature của GBT phụ")
+        chart(px.bar(imp.sort_values("importance"), x="importance", y="feature", orientation="h", title="Feature importance"), 400)
+
+with tab_data:
+    st.subheader("Lineage và trạng thái dữ liệu")
+    st.write("Bảng phân tích được sinh từ Bronze → Silver → Gold/Serving. Dataset local: 206.431 dòng, SHA-256 `AA5BCA7FDAA8C89D4AB50A2ED2B94FB09F608ACC49FC1108A1A612E9C0F5A7AD`.")
+    st.write("Các cảnh báo chất lượng được giữ ở Silver; ngưỡng 24 giờ và 50 km chỉ là cohort phân tích, không phải bộ lọc âm thầm.")
+    info = tables["pipeline_run_info"]
+    if info is not None and not info.empty:
+        st.dataframe(info, use_container_width=True, hide_index=True)
+    st.subheader("Tải bảng đang hiển thị")
+    choices = {key: value for key, value in tables.items() if value is not None and not value.empty}
+    selected_table = st.selectbox("Chọn bảng", list(choices), key="download_table")
+    if selected_table:
+        st.download_button("⬇️ Tải CSV", choices[selected_table].to_csv(index=False).encode("utf-8-sig"), file_name=f"{selected_table}.csv", mime="text/csv")
+
+st.caption(f"Cập nhật giao diện: {datetime.now().strftime('%Y-%m-%d %H:%M')} · Dữ liệu được cache tối đa 120 giây.")

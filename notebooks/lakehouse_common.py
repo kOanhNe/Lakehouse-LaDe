@@ -23,8 +23,13 @@ def create_spark(app_name):
     settings = {k: os.getenv(k, v if local else "") for k, v in defaults.items()}
     if not all(settings.values()):
         raise ValueError("Set MINIO_ENDPOINT, MINIO_ACCESS_KEY and MINIO_SECRET_KEY")
-    return (SparkSession.builder.appName(app_name)
-            .config("spark.jars.packages", PACKAGES)
+    builder = SparkSession.builder.appName(app_name)
+    # In Docker, packages are supplied once through PYSPARK_SUBMIT_ARGS.  When
+    # running outside Docker, keep the builder fallback for a normal checkout.
+    if not os.getenv("PYSPARK_SUBMIT_ARGS", "").strip():
+        builder = builder.config("spark.jars.packages", PACKAGES)
+    return (builder
+            .config("spark.jars.ivy", os.getenv("SPARK_IVY_DIR", "/tmp/lakehouse-ivy"))
             .config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension")
             .config("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog")
             .config("spark.hadoop.fs.s3a.endpoint", settings["MINIO_ENDPOINT"])

@@ -1,19 +1,26 @@
-# Data contract
+# Data dictionary và thời điểm biết của cột
 
-`delivery_yt.csv` is an extract of LaDe-D. The raw Bronze table must retain all 17 source columns as strings plus ingestion metadata. Casts belong in Silver and must be reproducible.
+Nguồn chuẩn là [`config/schema.yaml`](../config/schema.yaml). File này dùng để
+kiểm tra cột chưa khai báo, xác định nhãn và tạo allowlist cho feature builder.
 
-| Column | Type after Silver | Role | Null policy |
-|---|---:|---|---|
-| `order_id` | string | unique order grain | reject only missing/duplicate key |
-| `region_id`, `courier_id`, `aoi_id`, `aoi_type` | long | categorical identifiers | flag missing |
-| `city` | string | source city | flag missing |
-| `lng`, `lat` | double | stop coordinates | flag invalid range/NaN/zero island |
-| `accept_time`, `delivery_time` | timestamp | event times reconstructed with `DATA_YEAR` | flag parse failure |
-| `accept_gps_time`, `delivery_gps_time` | timestamp | nearest GPS event times | flag parse failure and future relative to event |
-| GPS lng/lat pairs | double | event coordinates | independent missing/range flags |
-| `ds` | string + `ds_date` | source day code and reconstructed date | compare with both event dates |
-| `delivery_minutes` | double | accept-to-completion label | `>0` for duration analyses |
-| `day_gap` | integer | calendar-day difference | descriptive flag |
-| `distance_km` | double | straight-line stop-to-accept-GPS distance | null when coordinates invalid |
+| Cột | Tầng | Biết tại thời điểm | Vai trò |
+|---|---|---|---|
+| `order_id`, `courier_id`, `region_id`, `aoi_id`, `aoi_type` | Bronze/Silver | Khi tạo đơn | Feature được phép |
+| `lng`, `lat` | Bronze/Silver | Khi tạo đơn, theo giả định data contract | Tọa độ điểm giao candidate |
+| `accept_ts`, `accept_gps_*` | Silver | Khi nhận đơn | Feature được phép |
+| `delivery_ts` | Silver | Khi giao xong | Mốc phân loại completed/pending |
+| `delivery_gps_*` | Silver | Khi giao xong | Chỉ dùng với completed có `delivery_ts <= query_ts` |
+| `delivery_minutes` | Silver | Sau khi giao xong | Label, không vào feature matrix |
+| `target_remaining_minutes` | Gold | Sau khi giao xong | Label ETA, không vào feature builder |
+| `ds`, `ds_date` | Bronze/Silver | Có trong source hoặc dựng khi ingest | Partition/audit |
+| `run_id`, `source_file` | Bronze/Silver/Gold | Khi chạy pipeline | Metadata lineage |
 
-The raw event timestamp has minute precision. Same-timestamp rows are ties; `order_id` is only a deterministic tie breaker and is not a physical route sequence.
+Quy tắc theo vai trò:
+
+- `completed`: được dùng `delivery_ts` và `delivery_gps_*` nếu giao trước hoặc tại query time.
+- `pending`: giữ thuộc tính đã biết khi nhận đơn; che trường chỉ xuất hiện sau giao.
+- `candidate`: chỉ dùng dữ liệu đã biết tại query time; không đọc `delivery_gps_*`.
+- `label`: truyền qua kênh riêng và không được đưa vào hàm tạo feature.
+
+Nếu thêm cột mới vào bất kỳ tầng nào, phải cập nhật `schema.yaml`, ghi status
+(`allowed`, `forbidden`, `label` hoặc `ignored`) và chạy `scripts/validate_schema.py`.

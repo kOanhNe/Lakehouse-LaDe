@@ -1,0 +1,71 @@
+CURRENT DATA WAREHOUSE - STAR SCHEMA / TABLE RELATIONSHIPS
+
+The staging flow is not the warehouse schema. The warehouse tables are shown below.
+
+                         +--------------------------------------+
+                         | FACT: fact_delivery_task_gold        |
+                         |--------------------------------------|
+                         | PK  order_id                          |
+                         | FK  courier_id                        |
+                         |     region_id                         |
+                         |     aoi_id                            |
+                         |     order_date                        |
+                         |     accept_ts                         |
+                         |     delivery_ts                       |
+                         |     delivery_minutes  [LABEL]         |
+                         |     distance_km                       |
+                         |     pred_lr / pred_gbt                |
+                         +------------------+-------------------+
+                                            |
+                 +--------------------------+--------------------------+
+                 |                                                     |
+                 v                                                     v
++----------------------------------+                 +----------------------------------+
+| DIM: dim_courier_silver          |                 | QUALITY: delivery_rejected      |
+|----------------------------------|                 |----------------------------------|
+| PK  courier_id + effective_date |                 | PK  order_id                    |
+|     courier_id                   |                 |     reject_reason               |
+|     effective_date               |                 |     quality flags               |
+|     end_date                     |                 |     source/run metadata         |
+|     dominant_region_id           |                 +----------------------------------+
+|     dominant_aoi_id              |
++----------------------------------+
+
+                   FACT CONSTELLATION: query-time ETA
+
+                         +--------------------------------------+
+                         | FACT: eta_safe_gold                  |
+                         |--------------------------------------|
+                         | PK  order_id + query_ts              |
+                         | FK  order_id -> fact (logical link)  |
+                         |     courier_id                        |
+                         |     query_ts                          |
+                         |     pending_order_count               |
+                         |     completed_order_count             |
+                         |     prediction_minutes                |
+                         |     target_remaining_minutes [LABEL]  |
+                         |     run_id                             |
+                         +------------------+-------------------+
+                                            |
+                                            v
+                         +--------------------------------------+
+                         | FACT: eta_safe_metrics_gold          |
+                         |--------------------------------------|
+                         | PK  run_id + protocol + split + seed |
+                         |     n, mae, rmse                     |
+                         |     execution_mode                   |
+                         +--------------------------------------+
+
+TABLE GRAINS
+- fact_delivery_task_gold: one completed delivery order per row.
+- dim_courier_silver: one courier state per effective date (SCD2).
+- eta_safe_gold: one candidate order at one query timestamp per row.
+- eta_safe_metrics_gold: one metric result per run, split and seed.
+- delivery_rejected: one rejected source order per row.
+
+CURRENT DESIGN NOTE
+- delivery_silver and delivery_bronze are staging layers, not star dimensions.
+- region_id and aoi_id are degenerate dimensions stored in the fact today.
+- A full star can add dim_region and dim_aoi later; this diagram intentionally
+  reflects the tables that the current pipeline actually creates.
+- delivery_minutes and target_remaining_minutes are labels, never features.

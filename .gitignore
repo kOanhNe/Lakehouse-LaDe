@@ -15,3 +15,4 @@ logs/
 docker/jars/aws-java-sdk-bundle-*.jar
 .DS_Store
 session_*.txt
+reports/eta_predictions*.csv
