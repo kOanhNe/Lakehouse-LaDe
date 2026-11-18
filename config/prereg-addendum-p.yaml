@@ -1,0 +1,21 @@
+version: prereg-v1-addendum-p
+status: added_after_prereg_v1_before_official_test
+note: >
+  Thêm sau prereg-v1 vì Protocol A-lite/B có query_ts = accept_ts nên không phải
+  bài toán ETA của bài báo LaDe. prereg.yaml giữ nguyên; addendum này khai báo
+  Protocol P. Số trong readme là kết quả thăm dò trên test, chưa phải kết quả test chính thức.
+protocol_P:
+  source_paper: arXiv:2306.10675 (thư mục time_prediction của wenhaomin/LaDe)
+  query_time: finish time của từng đơn trong quỹ đạo (courier_id, ds)
+  label: phút còn lại của đơn đang cầm; giữ 0 < label <= 120
+  min_remaining_packages: 2
+  window: {size: 24, stride: 12, max_queries: 12}
+  split: chronological_date, ratios [0.6, 0.2, 0.2], bỏ ngày sát ranh giới như code gốc
+  distance: haversine (thay geopy.geodesic)
+  models: [median_train, speed, lightgbm]
+  seeds: [42, 43, 44]
+  lightgbm_params_from: config/freeze-v1.yaml
+  known_deviations:
+    - courier speed của SPEED tính trên toàn file như code gốc (rò rỉ nhẹ)
+    - 8 feature tự chọn vì không có code LightGBM gốc
+  comparison_to_paper: descriptive_only

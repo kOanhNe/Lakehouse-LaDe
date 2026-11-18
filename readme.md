@@ -24,6 +24,8 @@ target_remaining_minutes = delivery_ts - query_ts
 
 Mô hình trả lời câu hỏi: tại thời điểm hệ thống quan sát được trạng thái đơn, còn khoảng bao nhiêu phút nữa đơn sẽ hoàn tất?
 
+> **Cập nhật:** `query_ts = accept_ts` nên Protocol A-lite/B ở dưới thực chất vẫn là ETA lúc nhận đơn (MAE khoảng 100 phút, không so được với bài báo). Bài toán ETA đúng bài báo LaDe là **Protocol P** (mục 5b).
+
 Bài toán cũ trong notebook 04 dự đoán toàn bộ `delivery_minutes` ngay khi nhận đơn và được giữ làm baseline phụ. Không so sánh trực tiếp metric của bài toán phụ với Protocol B vì nhãn, feature và tập đánh giá khác nhau.
 
 ## 2. Kiến trúc
@@ -112,6 +114,19 @@ Kiểm thử contract/leakage:
 
 Bộ test kiểm tra cột chưa khai báo, cột ignored không lọt vào feature, pending được giữ khi truncation và feature không thay đổi khi thêm dữ liệu giao tương lai. Xem [docs/leak_inventory.md](docs/leak_inventory.md).
 
+## 5b. Protocol P: ETA theo bài báo LaDe
+
+Protocol P chép đúng quy trình `time_prediction` của LaDe (arXiv 2306.10675): truy vấn tại lúc shipper giao xong một đơn; với mỗi đơn còn đang cầm (đã nhận trước thời điểm đó, giao sau đó), nhãn là số phút còn lại. Chỉ giữ nhãn trong 1-120 phút, cần ít nhất 2 đơn còn lại, cửa sổ 24 đơn, tối đa 12 truy vấn mỗi cửa sổ, chia 60/20/20 theo ngày (bỏ ngày sát ranh giới). Code: `src/eta/paper_protocol.py`; chạy: `python scripts/run_paper_protocol.py`.
+
+| Mô hình (test, 198.463 cặp) | MAE | RMSE (kiểu bài báo) | ACC@20 |
+|---|---:|---:|---:|
+| Trung vị train | 28,5 | 32,8 | 36,6 |
+| SPEED | 33,6 | 40,0 | 40,7 |
+| LightGBM (3 seed, 8 feature) | 20,7 | 24,9 | 59,2 |
+| Bài báo: SPEED / LightGBM / M2G4RTP | 33,97 / 23,32 / 17,21 | 40,27 / 27,82 / 19,71 | 42,0 / 51,2 / 69,2 |
+
+Lưu ý khi diễn giải: bộ lọc nhãn 1-120 phút loại khoảng 48% cặp (truy vấn, đơn), nên sai số chỉ áp dụng cho các đơn sắp giao. Dùng haversine thay `geopy.geodesic`; chưa có code LightGBM gốc nên chỉ so "cùng cỡ", không phải bản sao. Tốc độ shipper tính trên toàn file như code gốc (rò rỉ nhẹ, chỉ ảnh hưởng SPEED). Đăng ký thiết kế bổ sung: `config/prereg-addendum-p.yaml`.
+
 ## 6. Cài đặt Docker
 
 Yêu cầu Docker Desktop, Docker Compose v2, ít nhất 6–8 GB RAM cho Docker và vài GB dung lượng trống. Kiểm tra file dữ liệu đúng SHA-256 ở trên.
@@ -161,9 +176,9 @@ Dashboard chỉ đọc bảng serving MySQL, không chạy lại pipeline. Bấm
 
 ## 8. Các bảng đầu ra
 
-Delta/MinIO: `delivery_bronze`, `delivery_silver`, `delivery_rejected`, `dim_courier_silver`, `fact_delivery_task_gold`, `eta_safe_gold`, `eta_safe_metrics_gold`.
+Delta/MinIO: `delivery_bronze`, `delivery_silver`, `delivery_rejected`, `dim_courier_silver`, `fact_delivery_task_gold`, `eta_safe_gold`, `eta_safe_metrics_gold`, `eta_paper_gold`, `eta_paper_metrics_gold`.
 
-MySQL: `agg_overview`, `agg_region_daily`, `agg_region_summary`, `agg_hourly`, `agg_courier_performance`, `agg_region_error`, `ml_metrics`, `ml_feature_importance`, `eta_safe_metrics`, `pipeline_run_info`.
+MySQL: `agg_overview`, `agg_region_daily`, `agg_region_summary`, `agg_hourly`, `agg_courier_performance`, `agg_region_error`, `ml_metrics`, `ml_feature_importance`, `eta_safe_metrics`, `eta_paper_metrics`, `pipeline_run_info`.
 
 ## 9. Kiểm tra local và notebook
 

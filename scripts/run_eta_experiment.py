@@ -32,6 +32,7 @@ def run(source: Path, protocol: str, output: Path, seed: int = 42):
     test[FEATURES] = test[FEATURES].fillna(medians)
     model = fit_lightgbm(train, val, FEATURES, seed=seed)
     val_result = evaluate(model, val, FEATURES)
+    val_result.pop("predictions")
     test_result = evaluate(model, test, FEATURES)
     output.parent.mkdir(parents=True, exist_ok=True)
     pd.DataFrame({"order_id": test.order_id, "courier_day": test.courier_day,
