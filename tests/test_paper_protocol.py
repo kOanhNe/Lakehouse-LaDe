@@ -28,6 +28,15 @@ def test_labels_never_exceed_cap_and_are_positive():
     assert S.target_remaining_minutes.between(1, pp.LABEL_MAX).all()
 
 
+def test_bronze_string_columns_produce_numeric_features():
+    raw = raw_frame().astype({"lat": str, "lng": str, "aoi_type": str})
+    raw.loc[2, "aoi_type"] = None
+    df, _, spd = pp.clean(raw)
+    samples, _ = pp.build_samples(df, spd, {"0601": "train"})
+    assert sorted(samples.aoi.tolist()) == [-1, 1]
+    assert all(pd.api.types.is_numeric_dtype(samples[feature]) for feature in pp.FEATURES)
+
+
 def test_split_dates_disjoint():
     s = pp.split_dates([f"06{d:02d}" for d in range(1, 21)])
     assert set(s.values()) == {"train", "validation", "test"}

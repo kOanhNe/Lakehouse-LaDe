@@ -20,7 +20,7 @@ Dữ liệu cho thấy 350 AOI xuất hiện ở hơn một region (quan hệ kh
 
 ## Các fact khác (fact constellation)
 - `eta_safe_gold`: grain một đơn tại một thời điểm truy vấn, khóa `order_id + query_ts`.
-- `eta_paper_gold` (Protocol P): grain một (lần truy vấn, đơn còn cầm), khóa `query_id`.
+- `eta_paper_gold` (Protocol P): mỗi dòng là một cặp truy vấn và đơn còn cầm trong một cửa sổ. `query_id` gom các dòng của cùng truy vấn và có thể lặp qua các cửa sổ chồng lấn.
 - `eta_safe_metrics_gold`, `eta_paper_metrics_gold`: kết quả đo theo lần chạy, mô hình, seed.
 
 ## Bảng chất lượng
