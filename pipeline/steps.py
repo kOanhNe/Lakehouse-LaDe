@@ -13,7 +13,7 @@ from pyspark.ml.regression import GBTRegressor, LinearRegression
 from pyspark.sql.window import Window
 
 from lakehouse_common import (
-    courier_history, create_spark, haversine, join_courier_history,
+    attach_dimension_keys, build_dimensions, courier_history, create_spark, haversine, join_courier_history,
     parse_timestamp, require_unique_orders, valid_coordinates,
 )
 
@@ -22,6 +22,7 @@ BRONZE = BASE + "delivery_bronze"
 SILVER = BASE + "delivery_silver"
 REJECTED = BASE + "delivery_rejected"
 DIM = BASE + "dim_courier_silver"
+DIMS = {n: BASE + n + "_gold" for n in ("dim_region", "dim_aoi", "dim_date", "dim_hour")}
 FACT = BASE + "fact_delivery_task_gold"
 PRED = BASE + "eta_predictions_gold"
 RUN_INFO = BASE + "pipeline_run_info"
@@ -128,6 +129,16 @@ def build_dim_courier(spark):
     return {"dim_rows": h.count(), "couriers": h.select("courier_id").distinct().count()}
 
 
+def build_star_dimensions(spark):
+    """Dựng dim_region, dim_aoi, dim_date, dim_hour (cùng dim_courier tạo thành star schema)."""
+    silver = spark.read.format("delta").load(SILVER)
+    out = {}
+    for name, df in build_dimensions(silver).items():
+        df.write.format("delta").mode("overwrite").option("overwriteSchema", "true").save(DIMS[name])
+        out[name] = df.count()
+    return out
+
+
 # --------------------------------------------------------- 4. Fact + ML
 def _metrics(df, label, pred_col):
     r = df.select(
@@ -144,6 +155,7 @@ def build_fact_and_train(spark, train_end="2022-10-01", late_threshold_min=None)
     silver = spark.read.format("delta").load(SILVER)
     dim = spark.read.format("delta").load(DIM)
     fact = join_courier_history(silver, dim)
+    fact = attach_dimension_keys(fact, {n: spark.read.format("delta").load(p) for n, p in DIMS.items()})
     n_silver, n_fact = silver.count(), fact.count()
     if n_fact != n_silver:
         raise ValueError(f"Fact ({n_fact}) khác Silver ({n_silver})")
@@ -387,4 +399,7 @@ def serve_to_mysql(spark):
         out[name] = write_mysql(df, name)
         if out[name] == 0:
             raise ValueError(f"Bảng {name} rỗng")
+    for name, path in DIMS.items():  # dimension cho Metabase / truy vấn SQL
+        out[name] = write_mysql(spark.read.format("delta").load(path), name)
+    out["dim_courier"] = write_mysql(spark.read.format("delta").load(DIM), "dim_courier")
     return out

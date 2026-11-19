@@ -35,6 +35,13 @@ def t_dim(_upstream):
     return out
 
 
+@task(name="3b. Star: dim_region, dim_aoi, dim_date, dim_hour", retries=1, retry_delay_seconds=30)
+def t_star_dims(_upstream):
+    out = steps.build_star_dimensions(steps.get_spark())
+    get_run_logger().info(out)
+    return out
+
+
 @task(name="4. Gold: fact + huấn luyện ETA", retries=1, retry_delay_seconds=30)
 def t_gold(_upstream, train_end, late_threshold_min):
     out = steps.build_fact_and_train(steps.get_spark(), train_end, late_threshold_min)
@@ -68,11 +75,12 @@ def delivery_pipeline(train_end: str = "2022-10-01", late_threshold_min: float |
     bronze = t_bronze()
     silver = t_silver(bronze)
     dim = t_dim(silver)
+    star = t_star_dims(dim)
     eta_safe = t_eta_safe(dim)
     eta_paper = t_eta_paper(dim)
-    gold = t_gold(dim, train_end, late_threshold_min)
+    gold = t_gold(star, train_end, late_threshold_min)
     served = t_serve(gold)
-    return {"bronze": bronze, "silver": silver, "dim": dim, "eta_safe": eta_safe, "eta_paper": eta_paper, "gold": gold, "served": served}
+    return {"bronze": bronze, "silver": silver, "dim": dim, "star_dims": star, "eta_safe": eta_safe, "eta_paper": eta_paper, "gold": gold, "served": served}
 
 
 if __name__ == "__main__":

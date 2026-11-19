@@ -58,18 +58,10 @@ flowchart LR
 | Metabase | Khám phá dữ liệu bổ sung | 3000 |
 
 
-### Kho du lieu theo star schema hien tai
+### Kho dữ liệu theo star schema
 
-So do nay mo ta cac bang trong kho du lieu va quan he giua chung, khong phai so do service.
+Fact trung tâm `fact_delivery_task_gold` (grain một dòng cho một đơn giao) nối với 5 dimension: `dim_courier_silver` (SCD2), `dim_region_gold`, `dim_aoi_gold`, `dim_date_gold` (hai vai: ngày nhận và ngày giao), `dim_hour_gold`. Có thêm các fact ETA (`eta_safe_gold`, `eta_paper_gold`) và bảng audit `delivery_rejected`. Chi tiết, lý do thiết kế và các giới hạn: [docs/star_schema.md](docs/star_schema.md); sơ đồ dạng text: [docs/data_warehouse.txt](docs/data_warehouse.txt).
 
-- fact_delivery_task_gold la fact trung tam, grain mot dong cho mot don giao hang.
-- dim_courier_silver la dimension courier co lich su SCD2, khoa ghep courier_id + effective_date.
-- region_id va aoi_id hien dang la degenerate dimensions nam trong fact; pipeline chua tao dim_region va dim_aoi.
-- eta_safe_gold la fact rieng cho mot candidate tai mot query_ts; khoa ghep la order_id + query_ts.
-- eta_safe_metrics_gold la bang metric theo run_id, split va seed.
-- delivery_rejected la bang audit cac dong bi tu choi o Silver.
-
-So do bang dang text: docs/data_warehouse.txt. Mo ta grain va khoa: docs/star_schema.md.
 ## 3. Audit và tiền xử lý dữ liệu
 
 Chạy audit trước Silver:
