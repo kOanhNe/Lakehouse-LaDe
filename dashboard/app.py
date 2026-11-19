@@ -13,6 +13,7 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
+import insights
 from sqlalchemy import create_engine, text
 
 st.set_page_config(page_title="LaDe-D | Lakehouse Analytics", page_icon="🚚", layout="wide",
@@ -47,7 +48,7 @@ def read_table(name: str) -> pd.DataFrame | None:
         "agg_overview", "agg_region_daily", "agg_hourly", "agg_region_summary",
         "agg_region_error", "agg_courier_performance", "ml_metrics",
         "ml_feature_importance", "eta_prediction_sample", "eta_safe_metrics",
-        "pipeline_run_info",
+        "eta_paper_metrics", "pipeline_run_info",
     }
     if name not in allowed:
         raise ValueError(name)
@@ -69,14 +70,14 @@ def pct(value) -> str:
 def chart(fig, height=380):
     fig.update_layout(template="plotly_white", height=height, margin=dict(l=10, r=10, t=55, b=10),
                       legend=dict(orientation="h", y=1.08, x=0))
-    st.plotly_chart(fig, use_container_width=True, config={"displaylogo": False})
+    st.plotly_chart(fig, width="stretch", config={"displaylogo": False})
 
 
 tables = {name: read_table(name) for name in [
     "agg_overview", "agg_region_daily", "agg_hourly", "agg_region_summary",
     "agg_region_error", "agg_courier_performance", "ml_metrics",
     "ml_feature_importance", "eta_prediction_sample", "eta_safe_metrics",
-    "pipeline_run_info",
+    "eta_paper_metrics", "pipeline_run_info",
 ]}
 
 overview = tables["agg_overview"]
@@ -97,7 +98,7 @@ st.markdown(f'<div class="hero"><h1>🚚 LaDe-D Yantai</h1><p>Phân tích chất
 with st.sidebar:
     st.header("Bộ lọc dashboard")
     st.caption("Các biểu đồ đọc từ bảng serving đã được Prefect ghi vào MySQL.")
-    if st.button("🔄 Làm mới dữ liệu", use_container_width=True):
+    if st.button("🔄 Làm mới dữ liệu", width="stretch"):
         st.cache_data.clear()
         st.rerun()
     st.divider()
@@ -107,9 +108,16 @@ with st.sidebar:
     st.write("**Đơn vị:** phút, km")
     st.caption("Dashboard không thay thế kiểm định dữ liệu và không dùng để chọn model trên test.")
 
-tab_overview, tab_ops, tab_model, tab_data = st.tabs([
-    "📊 Tổng quan", "🛵 Shipper & khu vực", "🤖 Mô hình ETA", "🔎 Chất lượng & lineage"
+tab_overview, tab_ops, tab_paper, tab_model, tab_data = st.tabs([
+    "📊 Tổng quan", "🛵 Shipper & khu vực", "🎯 ETA theo bài báo", "🤖 Bài toán phụ", "🔎 Chất lượng & lineage"
 ])
+
+
+def comments(lines, title="Nhận xét"):
+    if lines:
+        st.markdown(f"<div class='note'><b>{title}</b><ul style='margin:.3rem 0 0 1.1rem'>"
+                    + "".join(f"<li>{x}</li>" for x in lines) + "</ul></div>", unsafe_allow_html=True)
+
 
 with tab_overview:
     st.subheader("Bức tranh chung")
@@ -120,6 +128,8 @@ with tab_overview:
     c4.metric("Tỷ lệ đơn chậm", pct(o['late_rate']))
     c5.metric("Đơn trên 24 giờ", pct(o['over_24h_rate']))
     st.markdown("<div class='note'>Thời gian xử lý là từ lúc nhận đơn đến lúc hoàn tất giao, không phải thời gian lái xe. Trung vị được ưu tiên vì dữ liệu có một số đơn rất dài.</div>", unsafe_allow_html=True)
+
+    comments(insights.overview_insights(o, tables["agg_hourly"], tables["agg_region_summary"]))
 
     daily = tables["agg_region_daily"]
     if daily is not None and not daily.empty:
@@ -153,6 +163,7 @@ with tab_ops:
         chosen_regions = f1.multiselect("Khu vực chính", region_options, default=region_options, key="courier_regions")
         min_orders = f2.slider("Số đơn tối thiểu", 0, int(courier.total_orders.max()), min(200, int(courier.total_orders.max())), step=25)
         rank_key = f3.selectbox("Xếp hạng theo", ["late_rate", "median_delivery_minutes", "avg_delivery_minutes", "total_orders"], format_func=lambda x: {"late_rate":"Tỷ lệ chậm", "median_delivery_minutes":"Trung vị", "avg_delivery_minutes":"Trung bình", "total_orders":"Số đơn"}[x])
+        comments(insights.courier_insights(courier), "Nhận xét về shipper")
         c = courier[(courier.total_orders >= min_orders) & courier.main_region_id.isin(chosen_regions)].copy().sort_values(rank_key, ascending=rank_key != "total_orders")
         if c.empty:
             st.info("Không có shipper phù hợp bộ lọc.")
@@ -163,7 +174,7 @@ with tab_ops:
             chart(px.scatter(c, x="total_orders", y="median_delivery_minutes", color="late_rate", hover_data=["courier_id", "main_region_id"], title="Số đơn, thời gian trung vị và tỷ lệ chậm"), 430)
             show = c.copy()
             show["late_rate"] = show.late_rate.map(lambda x: f"{x:.1%}")
-            st.dataframe(show, use_container_width=True, hide_index=True)
+            st.dataframe(show, width="stretch", hide_index=True)
     if region is not None and not region.empty:
         st.subheader("So sánh khu vực")
         rs = region.copy(); rs["khu_vuc"] = "KV " + rs.region_id.astype(str)
@@ -172,11 +183,41 @@ with tab_ops:
             chart(px.bar(rs.sort_values("median_delivery_minutes"), x="khu_vuc", y="median_delivery_minutes", title="Thời gian trung vị theo khu vực", labels={"khu_vuc":"Khu vực", "median_delivery_minutes":"Phút"}))
         with b:
             chart(px.bar(rs.sort_values("late_rate", ascending=False), x="khu_vuc", y="late_rate", title="Tỷ lệ đơn chậm theo khu vực", labels={"khu_vuc":"Khu vực", "late_rate":"Tỷ lệ"}), 380)
-            st.dataframe(rs, use_container_width=True, hide_index=True)
+            st.dataframe(rs, width="stretch", hide_index=True)
     hourly = tables["agg_hourly"]
     if hourly is not None and not hourly.empty:
         st.subheader("Theo giờ nhận đơn")
         chart(px.line(hourly.sort_values("accept_hour"), x="accept_hour", y=["total_orders", "median_delivery_minutes"], markers=True, title="Số đơn và thời gian trung vị theo giờ nhận"), 420)
+
+with tab_paper:
+    st.subheader("ETA theo bài báo LaDe (Protocol P)")
+    st.markdown("Tại thời điểm shipper vừa giao xong một đơn, mô hình dự đoán **mỗi đơn còn đang cầm sẽ giao sau bao nhiêu phút**. "
+                "Cùng cách lấy mẫu, chia ngày và thước đo với bài báo, nên so sánh được. Chỉ tính đơn còn 1–120 phút.")
+    pm = tables["eta_paper_metrics"]
+    if pm is None or pm.empty:
+        st.info("Chưa có bảng `eta_paper_metrics`. Chạy lại pipeline (task 4c) rồi bấm làm mới.")
+    else:
+        wide = insights.paper_summary(pm)
+        ours = wide.reset_index().rename(columns={"index": "Mô hình", "mae": "MAE", "rmse_paper": "RMSE", "acc20": "ACC@20 (%)"})
+        paper_rows = pd.DataFrame([{"Mô hình": f"Bài báo: {k}", "MAE": v[0], "RMSE": v[1], "ACC@20 (%)": v[2]} for k, v in insights.PAPER.items()])
+        both = pd.concat([ours[["Mô hình", "MAE", "RMSE", "ACC@20 (%)"]], paper_rows], ignore_index=True)
+        both["Nguồn"] = ["Đồ án"] * len(ours) + ["Bài báo"] * len(paper_rows)
+        k1, k2, k3 = st.columns(3)
+        if "LightGBM" in wide.index and "SPEED" in wide.index:
+            k1.metric("MAE LightGBM", f"{wide.loc['LightGBM', 'mae']:.1f} phút",
+                      f"{wide.loc['LightGBM', 'mae'] - wide.loc['SPEED', 'mae']:.1f} so với SPEED", delta_color="inverse")
+            k2.metric("ACC@20 LightGBM", f"{wide.loc['LightGBM', 'acc20']:.1f}%")
+            k3.metric("MAE SPEED", f"{wide.loc['SPEED', 'mae']:.1f} phút", f"bài báo: {insights.PAPER['speed'][0]}", delta_color="off")
+        a, b = st.columns(2)
+        with a:
+            chart(px.bar(both, x="Mô hình", y="MAE", color="Nguồn", title="MAE (phút, càng thấp càng tốt)"), 420)
+        with b:
+            chart(px.bar(both, x="Mô hình", y="ACC@20 (%)", color="Nguồn", title="Tỷ lệ sai không quá 20 phút (%)"), 420)
+        st.dataframe(both.round(2), width="stretch", hide_index=True)
+        comments(insights.paper_insights(pm))
+        st.markdown("<div class='note'><b>Lưu ý khi diễn giải.</b> Bộ lọc nhãn 1–120 phút loại khoảng một nửa số cặp (truy vấn, đơn), "
+                    "nên sai số chỉ áp dụng cho các đơn sắp giao. Khoảng cách tính bằng haversine, tốc độ SPEED tính trên toàn file như code gốc, "
+                    "và chưa có code LightGBM gốc nên chỉ so 'cùng cỡ'. LightGBM lấy trung bình 3 seed.</div>", unsafe_allow_html=True)
 
 with tab_model:
     st.subheader("Đánh giá mô hình")
@@ -184,7 +225,7 @@ with tab_model:
     safe = tables["eta_safe_metrics"]
     if safe is not None and not safe.empty:
         st.success("Đã có metric của Protocol B leakage-safe.")
-        st.dataframe(safe, use_container_width=True, hide_index=True)
+        st.dataframe(safe, width="stretch", hide_index=True)
         test_safe = safe[safe.split.astype(str).str.lower().eq("test")]
         if not test_safe.empty:
             chart(px.bar(test_safe, x="seed", y=["mae", "rmse"], barmode="group", title="ETA leakage-safe theo seed", labels={"seed":"Seed", "value":"Phút"}), 380)
@@ -194,7 +235,7 @@ with tab_model:
     if metrics is not None and not metrics.empty:
         st.subheader("Baseline và mô hình cũ")
         st.caption("Bảng này là bài toán phụ: dự đoán delivery_minutes từ lúc nhận đơn. Không so trực tiếp với Protocol B.")
-        st.dataframe(metrics, use_container_width=True, hide_index=True)
+        st.dataframe(metrics, width="stretch", hide_index=True)
         plot = metrics.dropna(subset=["mae", "rmse"]).copy()
         if not plot.empty:
             chart(px.bar(plot, x="model", y=["mae", "rmse"], barmode="group", title="Sai số bài toán phụ", labels={"model":"Mô hình", "value":"Phút"}), 400)
@@ -209,7 +250,7 @@ with tab_data:
     st.write("Các cảnh báo chất lượng được giữ ở Silver; ngưỡng 24 giờ và 50 km chỉ là cohort phân tích, không phải bộ lọc âm thầm.")
     info = tables["pipeline_run_info"]
     if info is not None and not info.empty:
-        st.dataframe(info, use_container_width=True, hide_index=True)
+        st.dataframe(info, width="stretch", hide_index=True)
     st.subheader("Tải bảng đang hiển thị")
     choices = {key: value for key, value in tables.items() if value is not None and not value.empty}
     selected_table = st.selectbox("Chọn bảng", list(choices), key="download_table")
