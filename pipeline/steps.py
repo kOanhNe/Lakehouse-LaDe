@@ -301,13 +301,10 @@ def build_eta_safe(spark, seeds=(42, 43, 44)):
 
 def build_eta_paper(spark, seeds=(42, 43, 44)):
     """Protocol P: bài toán ETA của bài báo LaDe (truy vấn tại lúc giao xong, nhãn 0-120 phút)."""
-    import pandas as pd
     from src.eta import paper_protocol
 
     raw = spark.read.format("delta").load(BRONZE).select(
         "courier_id", "ds", "lat", "lng", "aoi_type", "accept_time", "delivery_time").toPandas()
-    for c in ("lat", "lng"):
-        raw[c] = pd.to_numeric(raw[c])
     metrics, stats, scored = paper_protocol.run(raw, seeds)
     run_id = uuid.uuid4().hex
     metrics.insert(0, "run_id", run_id)

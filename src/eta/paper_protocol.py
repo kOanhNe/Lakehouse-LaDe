@@ -38,6 +38,10 @@ def clean(raw):
     df = raw[["courier_id", "ds", "lat", "lng", "aoi_type", "accept_time", "delivery_time"]].copy()
     df["courier_id"] = df.courier_id.astype(str)
     df["ds"] = df.ds.astype(str).str.zfill(4)
+    for column in ("lat", "lng"):
+        df[column] = pd.to_numeric(df[column], errors="coerce")
+    # Bronze can expose AOI codes as strings, while LightGBM requires numeric features.
+    df["aoi_type"] = pd.to_numeric(df["aoi_type"], errors="coerce").fillna(-1).astype("int32")
     df = df.drop_duplicates()
     df["fin"] = _minute(df.delivery_time)
     df["acc"] = _minute(df.accept_time)
@@ -46,7 +50,7 @@ def clean(raw):
     df["dis"], df["tm"] = _to_last(df)
     speed = np.where(df.tm == 0, 0, df.dis / df.tm.replace(0, np.nan))
     flag = pd.Series(speed > 500, index=df.index)
-    nxt = flag.groupby([df.courier_id, df.ds], sort=False).shift(-1).fillna(False).astype(bool)
+    nxt = flag.groupby([df.courier_id, df.ds], sort=False).shift(-1, fill_value=False)
     drop_a = flag & nxt
     df = df[~drop_a].copy()
     cs = df.groupby("courier_id").agg(d=("dis", "sum"), t=("tm", "sum"))
