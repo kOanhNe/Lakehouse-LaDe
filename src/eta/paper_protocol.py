@@ -68,9 +68,9 @@ def split_dates(dates):
     return out
 
 
-def build_samples(df, spd, split):
+def build_samples(df, spd, split, label_max=LABEL_MAX):
     """Mỗi dòng = (một lần truy vấn, một đơn còn cầm). Giữ nguyên luật cửa sổ 24 đơn / T=12."""
-    rows, capped, total = [], 0, 0  # capped/total: cặp bị loại bởi nhãn 0<y<=120
+    rows, zero, over, total = [], 0, 0, 0  # cặp bị loại: nhãn <=0 / nhãn > label_max
     for (cid, ds), c in df.groupby(KEY, sort=False):
         part = split.get(ds)
         if part is None:
@@ -86,8 +86,8 @@ def build_samples(df, spd, split):
                     break
                 todo = [j for j in range(i + 1, L) if acc[j] < fin[i]]
                 lab = [fin[j] - fin[i] for j in todo]
-                total += len(todo); capped += sum(1 for l in lab if l <= 0 or l > LABEL_MAX)
-                ok = [(j, l) for j, l in zip(todo, lab) if 0 < l <= LABEL_MAX]
+                total += len(todo); zero += sum(1 for l in lab if l <= 0); over += sum(1 for l in lab if l > label_max)
+                ok = [(j, l) for j, l in zip(todo, lab) if 0 < l <= label_max]
                 if len(ok) < 2:
                     continue
                 if any(j - s >= 24 for j, _ in ok):
@@ -106,7 +106,10 @@ def build_samples(df, spd, split):
             if not bad:
                 rows += recs
     S = pd.DataFrame(rows, columns=["split", "query_id", "target_remaining_minutes", *FEATURES])
-    return S, {"pairs_removed_by_label_filter": round(capped / max(total, 1), 4)}
+    return S, {"pairs_candidate": total,
+               "pairs_removed_by_label_filter": round((zero + over) / max(total, 1), 4),
+               "removed_label_zero": round(zero / max(total, 1), 4),
+               f"removed_label_over_{label_max}": round(over / max(total, 1), 4)}
 
 
 def metrics(S, pred):
@@ -118,11 +121,11 @@ def metrics(S, pred):
             "acc30": float(100 * (err <= 30).mean())}
 
 
-def run(raw, seeds=(42, 43, 44)):
+def run(raw, seeds=(42, 43, 44), label_max=LABEL_MAX):
     """Trả về (bảng metric dài, thống kê lọc, bảng dự đoán test của seed đầu)."""
     from .model import fit_lightgbm
     df, stats, spd = clean(raw)
-    S, info = build_samples(df, spd, split_dates(df.ds))
+    S, info = build_samples(df, spd, split_dates(df.ds), label_max)
     tr, va, te = (S[S["split"] == k] for k in ("train", "validation", "test"))
     y = "target_remaining_minutes"
     rows = []

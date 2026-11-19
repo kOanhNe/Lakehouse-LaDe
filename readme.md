@@ -24,7 +24,7 @@ target_remaining_minutes = delivery_ts - query_ts
 
 Mô hình trả lời câu hỏi: tại thời điểm hệ thống quan sát được trạng thái đơn, còn khoảng bao nhiêu phút nữa đơn sẽ hoàn tất?
 
-> **Cập nhật:** `query_ts = accept_ts` nên Protocol A-lite/B ở dưới thực chất vẫn là ETA lúc nhận đơn (MAE khoảng 100 phút, không so được với bài báo). Bài toán ETA đúng bài báo LaDe là **Protocol P** (mục 5b).
+> **Phân vai:** Protocol A-lite/B có `query_ts = accept_ts`, tức là bài toán **phụ** "ETA lúc nhận đơn" (MAE khoảng 100 phút), dùng để đo ảnh hưởng của leakage; không so được với bài báo. Bài toán **chính**, đúng bài báo LaDe, là **Protocol P** (mục 5b). A-lite và B dùng chung tập truy vấn (tối đa 12 truy vấn mỗi shipper mỗi ngày, chọn bằng băm xác định, đúng `prereg.yaml`).
 
 Bài toán cũ trong notebook 04 dự đoán toàn bộ `delivery_minutes` ngay khi nhận đơn và được giữ làm baseline phụ. Không so sánh trực tiếp metric của bài toán phụ với Protocol B vì nhãn, feature và tập đánh giá khác nhau.
 
@@ -117,7 +117,7 @@ Protocol P chép đúng quy trình `time_prediction` của LaDe (arXiv 2306.1067
 | LightGBM (3 seed, 8 feature) | 20,7 | 24,9 | 59,2 |
 | Bài báo: SPEED / LightGBM / M2G4RTP | 33,97 / 23,32 / 17,21 | 40,27 / 27,82 / 19,71 | 42,0 / 51,2 / 69,2 |
 
-Lưu ý khi diễn giải: bộ lọc nhãn 1-120 phút loại khoảng 48% cặp (truy vấn, đơn), nên sai số chỉ áp dụng cho các đơn sắp giao. Dùng haversine thay `geopy.geodesic`; chưa có code LightGBM gốc nên chỉ so "cùng cỡ", không phải bản sao. Tốc độ shipper tính trên toàn file như code gốc (rò rỉ nhẹ, chỉ ảnh hưởng SPEED). Đăng ký thiết kế bổ sung: `config/prereg-addendum-p.yaml`.
+Lưu ý khi diễn giải: bộ lọc nhãn 1-120 phút loại khoảng 48% cặp (truy vấn, đơn), nên sai số chỉ áp dụng cho các đơn sắp giao. Dùng haversine thay `geopy.geodesic`; chưa có code LightGBM gốc nên chỉ so "cùng cỡ", không phải bản sao. Tốc độ shipper tính trên toàn file như code gốc (rò rỉ nhẹ, chỉ ảnh hưởng SPEED). Đăng ký thiết kế bổ sung: `config/prereg-addendum-p.yaml`. Độ nhạy theo ngưỡng nhãn, bằng chứng SCD2 và các giới hạn khác: [docs/analysis_limits.md](docs/analysis_limits.md).
 
 ## 6. Cài đặt Docker
 

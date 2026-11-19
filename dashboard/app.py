@@ -221,14 +221,14 @@ with tab_paper:
 
 with tab_model:
     st.subheader("Đánh giá mô hình")
-    st.markdown("Mô hình **ETA leakage-safe** trả lời: tại thời điểm query, đơn còn khoảng bao nhiêu phút nữa sẽ hoàn tất? `delivery_gps` của đơn pending/candidate chưa giao không được dùng.")
+    st.markdown("Đây là **bài toán phụ: ETA lúc nhận đơn** (query = thời điểm nhận, nhãn = `delivery_minutes`). Dùng để đo ảnh hưởng của leakage (A-lite có rò rỉ so với B đã chặn). Không so với bài báo; bài toán chính ở tab \"ETA theo bài báo\". `delivery_gps` của đơn chưa giao không được dùng.")
     safe = tables["eta_safe_metrics"]
     if safe is not None and not safe.empty:
-        st.success("Đã có metric của Protocol B leakage-safe.")
+        st.success("Đã có metric của Protocol B (ETA lúc nhận đơn, đã chặn leakage).")
         st.dataframe(safe, width="stretch", hide_index=True)
         test_safe = safe[safe.split.astype(str).str.lower().eq("test")]
         if not test_safe.empty:
-            chart(px.bar(test_safe, x="seed", y=["mae", "rmse"], barmode="group", title="ETA leakage-safe theo seed", labels={"seed":"Seed", "value":"Phút"}), 380)
+            chart(px.bar(test_safe, x="seed", y=["mae", "rmse"], barmode="group", title="ETA lúc nhận đơn (Protocol B) theo seed", labels={"seed":"Seed", "value":"Phút"}), 380)
     else:
         st.info("Chưa có bảng `eta_safe_metrics`. Pipeline cũ vẫn có thể hiển thị bên dưới; chạy lại image/pipeline mới để ghi thêm bảng này.")
     metrics = tables["ml_metrics"]

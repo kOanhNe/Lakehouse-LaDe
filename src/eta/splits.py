@@ -39,7 +39,8 @@ def query_grid(frame: pd.DataFrame, max_per_courier_day: int = 12, seed: int = 4
     data["accept_ts"] = pd.to_datetime(data["accept_ts"])
     data["courier_day"] = data["accept_ts"].dt.strftime("%Y-%m-%d")
     grid = data[["courier_id", "courier_day", "accept_ts", "order_id"]].drop_duplicates()
-    grid["key"] = grid.apply(lambda r: f"{r.courier_id}|{r.courier_day}|{r.accept_ts.isoformat()}|{r.order_id}", axis=1)
+    grid["key"] = (grid.courier_id.astype(str) + "|" + grid.courier_day + "|"
+                   + grid.accept_ts.dt.strftime("%Y-%m-%dT%H:%M:%S") + "|" + grid.order_id.astype(str))
     grid["hash"] = grid["key"].map(lambda key: _stable_hash(key, seed))
     return (grid.sort_values(["courier_id", "courier_day", "hash", "order_id"])
             .groupby(["courier_id", "courier_day"], sort=False, group_keys=False).head(max_per_courier_day)

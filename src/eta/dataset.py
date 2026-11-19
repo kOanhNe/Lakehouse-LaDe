@@ -1,8 +1,8 @@
 """Vectorized construction of an accept-time ETA experiment table.
 
-This module is deliberately separate from the notebook. It provides the
-auditable A-lite/B contrast used by the thesis; the full paper reproduction can
-be added without changing the feature contract.
+Phạm vi: đây là bài toán PHỤ "ETA lúc nhận đơn" (query_ts = accept_ts, nhãn =
+delivery_minutes). Nó dùng để định lượng leakage (A-lite so với B). Bài toán ETA
+của bài báo LaDe (truy vấn lúc giao xong, nhãn 1-120 phút) nằm ở paper_protocol.py.
 """
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from .splits import assign_time_split, time_boundaries
+from .splits import assign_time_split, query_grid, time_boundaries
 
 SOURCE_COLUMNS = [
     "order_id", "region_id", "city", "courier_id", "lng", "lat", "aoi_id", "aoi_type",
@@ -47,12 +47,18 @@ def _haversine(lat1, lon1, lat2, lon2):
     return 2 * 6371.0088 * np.arcsin(np.sqrt(np.clip(a, 0, 1)))
 
 
-def build_eta_samples(events: pd.DataFrame, protocol: str = "B") -> pd.DataFrame:
+def build_eta_samples(events: pd.DataFrame, protocol: str = "B", max_per_courier_day: int | None = 12,
+                      seed: int = 42) -> pd.DataFrame:
     """Create one label row per accepted candidate.
 
     Protocol A-lite uses the courier's full-file average and is intentionally
     leaky. Protocol B uses only deliveries completed by the query timestamp.
     Both protocols use the same candidate rows and event-time computation.
+
+    Theo prereg.yaml, mỗi (shipper, ngày) chỉ giữ tối đa ``max_per_courier_day`` truy vấn,
+    chọn bằng băm xác định (``query_grid``, seed cố định) nên A-lite và B có CÙNG tập
+    truy vấn ("common spine"). Đặt None để giữ mọi đơn. Đặc trưng vẫn tính trên toàn bộ
+    lịch sử của shipper trước khi lấy mẫu.
     """
     if protocol not in {"A-lite", "B"}:
         raise ValueError("protocol must be 'A-lite' or 'B'")
@@ -104,6 +110,9 @@ def build_eta_samples(events: pd.DataFrame, protocol: str = "B") -> pd.DataFrame
         })
         outputs.append(out)
     result = pd.concat(outputs, ignore_index=True)
+    if max_per_courier_day is not None:
+        grid = query_grid(data, max_per_courier_day, seed)
+        result = result.loc[result.order_id.isin(set(grid.order_id.astype(str)))].reset_index(drop=True)
     boundaries = time_boundaries(result, "query_ts")
     result["split"] = assign_time_split(result, boundaries, "query_ts")
     return result
