@@ -1,0 +1,11 @@
+{
+  "couriers": 205,
+  "couriers_changed_region": 3,
+  "couriers_changed_region_pct": 1.5,
+  "region_change_events": 21,
+  "scd2_rows": 226,
+  "orders": 206431,
+  "orders_mislabeled_if_latest_region": 1977,
+  "orders_mislabeled_if_latest_region_pct": 1.0,
+  "reading": "Nếu chỉ lưu khu vực hiện tại, tỉ lệ đơn trên bị gán sai khu vực của shipper tại thời điểm nhận đơn. Đây là lý do dùng SCD2; chưa chứng minh SCD2 làm ETA chính xác hơn."
+}
