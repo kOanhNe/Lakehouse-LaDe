@@ -16,11 +16,13 @@ Công thức nhãn ETA:
 target_remaining_minutes = delivery_ts - query_ts
 ~~~
 
-Cần phân biệt ba bài toán:
+| Bài toán | Vai trò | Cách diễn giải |
+|---|---|---|
+| Protocol P | ETA chính, tái lập LaDe | Tại lúc shipper vừa giao xong một đơn, dự đoán thời gian còn lại của các đơn đang cầm. Đánh giá ngoại tuyến trên cohort nhãn 1–120 phút, với các giới hạn leakage đã công bố trong [audit Protocol P](docs/leak_inventory.md#audit-protocol-p). |
+| Protocol B (ETA-safe) | Bài toán phụ tại lúc nhận đơn | Dự đoán thời gian giao ngay khi nhận, với kiểm soát leakage theo contract. So với A-lite trên cùng tập truy vấn để đo ảnh hưởng của leakage. |
+| Spark LR/GBT | Baseline thời lượng giao hàng | Dự đoán `delivery_minutes` từ lúc nhận đơn trên cohort Spark có GPS hợp lệ, khoảng cách tối đa 50 km và thời lượng tối đa 24 giờ. Đọc MAE trong cohort của baseline. |
 
-- Protocol P là bài toán chính theo quy trình LaDe. Query time là lúc shipper vừa giao xong một đơn; mô hình dự đoán thời gian còn lại của các đơn đang cầm.
-- Protocol B/ETA-safe là bài toán phụ tại lúc nhận đơn, dùng để đo ảnh hưởng của leakage. Không so sánh trực tiếp MAE của Protocol B với Protocol P.
-- Notebook 04 giữ baseline cũ dự đoán toàn bộ delivery_minutes ngay lúc nhận đơn.
+MAE khoảng **20,7 phút** của LightGBM thuộc Protocol P trên Yantai, trung bình qua ba seed. Chỉ xếp hạng các mô hình trong cùng bài toán và cùng tập đánh giá. Protocol B và Spark LR/GBT truy vấn lúc nhận đơn, còn Protocol P truy vấn sau một lần giao xong và dùng tập đánh giá riêng. [Metric Protocol P đã lưu](reports/eta_paper_metrics.csv)
 
 ## 2. Dữ liệu đầu vào
 
@@ -52,7 +54,7 @@ delivery_minutes là thời gian từ lúc shipper nhận đơn đến lúc giao
 delivery_yt.csv
     |
     v
-Bronze Delta: dữ liệu thô + lineage
+Bronze Delta: dữ liệu thô
     |
     v
 Silver Delta: ép kiểu + timestamp + quality flags
@@ -82,11 +84,11 @@ Sơ đồ kho dữ liệu dạng bảng nằm tại docs/data_warehouse.txt. Chi
 
 ## 4. Các tầng dữ liệu
 
-Bronze giữ dữ liệu nguồn và metadata lineage, không âm thầm xóa dòng.
+Bronze giữ 17 cột nguồn ở dạng chuỗi. Pipeline kiểm tra header, khóa `order_id` và đối soát khóa giữa CSV đã đọc và Delta Bronze sau khi ghi.
 
-Silver ép kiểu số và timestamp, tính delivery_minutes, day_gap, khoảng cách Haversine và các cờ chất lượng. Dòng không hợp lệ được ghi vào delivery_rejected kèm reject_reason. Các dòng quá 24 giờ, qua ngày, thiếu GPS hoặc khoảng cách lớn vẫn được giữ để phân tích; từng cohort phải tự khai báo policy lọc.
+Silver ép kiểu, tính thời lượng, khoảng cách và cờ chất lượng. Timestamp không phân tích được hoặc thời lượng không dương đi vào `delivery_rejected` kèm lý do. Các ngưỡng 24 giờ và 50 km áp dụng ở cohort mô hình Spark. Sau khi ghi, pipeline đọc lại Silver và Rejected để kiểm tra mỗi khóa Bronze xuất hiện đúng một lần trong hai bảng và kiểm tra điều kiện của từng bảng.
 
-Gold gồm fact_delivery_task_gold với grain một dòng cho một đơn và các dimension region, AOI, date, hour cùng lịch sử courier SCD2. SCD2 là thành phần kiến trúc để bảo toàn lịch sử, không được diễn giải là nguyên nhân làm ETA tốt hơn.
+Gold gồm `fact_delivery_task_gold` với grain một dòng cho một đơn, các dimension region, AOI, date, hour và lịch sử courier SCD2. Pipeline kiểm tra khóa ngoại và đối soát khóa giữa Silver với fact đã ghi. Các đối soát dùng dữ liệu đọc thực tế.
 
 ## 5. Protocol P
 
@@ -109,12 +111,12 @@ Quy trình hiện tại:
 - cửa sổ tối đa 24 đơn;
 - tối đa 12 query mỗi cửa sổ, với bước trượt 12 đơn;
 - query được chọn bằng quy tắc xác định;
-- chia theo ngày thành train/validation/test với tỷ lệ 60/20/20;
+- chia theo ngày theo mốc 60/20/20, bỏ hai ngày tại ranh giới theo cách lấy mẫu hiện tại;
 - chạy baseline median, SPEED và LightGBM với seed 42, 43, 44.
 
-Kết quả ghi vào eta_paper_gold và eta_paper_metrics_gold. Bộ lọc 1-120 phút chỉ mô tả cohort đơn sắp giao; không được diễn giải là sai số của mọi đơn trong dataset. Chi tiết giới hạn xem docs/analysis_limits.md.
+Kết quả ghi vào `eta_paper_gold` và `eta_paper_metrics_gold`. Đây là kết quả tái lập ngoại tuyến trên cohort 1–120 phút. `spd` dùng cả file, còn `ntodo` và `rank` phụ thuộc nhãn tương lai của các đơn trong cửa sổ. Xem [audit Protocol P](docs/leak_inventory.md#audit-protocol-p) để biết phạm vi diễn giải.
 
-Protocol B ghi vào eta_safe_gold và eta_safe_metrics_gold. Feature phải tuân thủ thời điểm biết trong config/schema.yaml; không dùng dữ liệu tương lai.
+Protocol B ghi vào `eta_safe_gold` và `eta_safe_metrics_gold`. Kiểm soát trường đầu vào theo thời điểm biết trong `config/schema.yaml` và giới hạn lịch sử shipper tới thời điểm truy vấn.
 
 ## 6. Cài đặt
 
@@ -196,7 +198,11 @@ Bronze -> Silver -> courier SCD2 -> star dimensions
       -> fact/baseline 4 -> serving MySQL
 ~~~
 
-Theo dõi log trong terminal đang chạy lệnh hoặc mở Prefect tại http://localhost:4200. Flow hoàn tất khi log có `Finished in state Completed()`. Không chạy song song hai flow vì các bảng Delta được ghi ở chế độ overwrite.
+Theo dõi terminal hoặc mở Prefect tại http://localhost:4200. Flow ưu tiên CSV trên MinIO nếu có, rồi dùng file local được mount nếu object không tồn tại. Log Bronze ghi URI thực tế.
+
+MySQL lưu từng lần thử trong `lakehouse_pipeline_runs` cùng mã run, Prefect flow ID, bước hiện tại và thời gian UTC. Khóa MySQL giới hạn một flow ghi dữ liệu tại một thời điểm. Trạng thái `COMPLETED` được ghi sau khi các lượt ghi và đối soát hoàn tất. `FAILED` ghi nhận lỗi trong flow. Lần chạy `RUNNING` mất phiên giữ khóa được nhận diện là `INTERRUPTED`, rồi được cập nhật vào nhật ký khi lần kế tiếp bắt đầu.
+
+Khi lỗi, xem bước cuối trong Prefect và chạy lại flow từ đầu. Chạy lại dùng overwrite theo batch. Delta và MySQL có thể chứa dữ liệu ghi dở giữa hai lần chạy, vì mỗi bảng được cập nhật riêng.
 
 ## 8. Chạy notebook đúng thứ tự
 
@@ -222,7 +228,7 @@ Thứ tự bắt buộc:
 | 4c | 04c_eta_paper.ipynb | Protocol P, SPEED, LightGBM |
 | 5 | 05_serving_layer.ipynb | MySQL serving |
 
-Chờ cell của notebook trước trả về kết quả rồi mới chạy notebook tiếp theo. Nếu báo PATH_NOT_FOUND, bảng upstream chưa được tạo hoặc notebook đang chạy sai thứ tự. Không chạy hai notebook ghi cùng bảng cùng lúc.
+Chờ cell của notebook trước trả về kết quả rồi mới chạy notebook tiếp theo. Nếu báo PATH_NOT_FOUND, bảng upstream chưa được tạo hoặc notebook đang chạy sai thứ tự. Dùng notebook ghi bảng khi flow Prefect đã dừng. Sau đó chạy flow đầy đủ để công bố dữ liệu cho dashboard.
 
 Chạy một notebook bằng lệnh:
 
@@ -232,9 +238,9 @@ docker compose exec jupyter jupyter nbconvert --to notebook --execute --ExecuteP
 
 ## 9. Dashboard và kết quả
 
-Sau khi pipeline hoặc notebook 05 hoàn tất, mở http://localhost:8501.
+Sau khi flow Prefect hoàn tất, mở http://localhost:8501 và bấm làm mới nếu trang đang mở.
 
-Dashboard đọc dữ liệu từ MySQL, gồm tổng quan giao hàng, shipper/khu vực, chất lượng dữ liệu, lineage, ETA-safe và Protocol P. Dashboard không tự chạy pipeline.
+Dashboard chỉ hiển thị biểu đồ khi lần mới nhất là `COMPLETED` và tất cả bảng dashboard có cùng `pipeline_run_id`. Lần đang chạy, thất bại, gián đoạn hoặc có bảng lẫn mã sẽ hiển thị trạng thái thay cho biểu đồ. Sau khi nâng cấp từ phiên bản chưa có nhật ký, chạy flow một lần để tạo dữ liệu có mã. Truy vấn MySQL trực tiếp và Metabase đọc bảng tại thời điểm truy vấn.
 
 Các Delta table chính:
 
@@ -268,8 +274,19 @@ Nếu chạy kiểm tra ngoài Docker trên Windows, tạo môi trường ảo b
 py -3.12 -m venv .venv
 .venv\Scripts\python.exe -m pip install -r requirements.txt
 .venv\Scripts\python.exe scripts/validate_schema.py
-.venv\Scripts\python.exe -m pytest -q
+.venv\Scripts\python.exe -m pytest -m "not integration" -q
 ~~~
+
+Chạy trọn bộ unit test Spark và sau đó chạy integration trên Docker.
+
+~~~powershell
+docker compose up -d jupyter dashboard
+docker compose exec -T jupyter python -m pip install "pytest>=8,<9"
+docker compose exec -T -w /home/jovyan jupyter python -m pytest -m "not integration" -q -p no:cacheprovider
+docker compose exec -T -w /home/jovyan jupyter python -m pytest -m integration -q -p no:cacheprovider
+~~~
+
+Unit test Spark cần PySpark và JVM, có sẵn trong container Jupyter. Integration dùng Spark/Delta, MinIO, MySQL và API Prefect thật với CSV mẫu và các bảng có tiền tố riêng. Bộ test ghi dữ liệu, chạy lại sau một lỗi ghi MySQL được mô phỏng và kiểm tra cách phát hiện khóa bị mất. Xem [trạng thái triển khai](docs/implementation_status.md) để biết kết quả và giới hạn.
 
 Chạy Protocol P ngoài Docker:
 
@@ -295,7 +312,7 @@ pandas dtypes must be int, float or bool: aoi: image cũ chưa chuẩn hóa aoi_
 
 Spark WindowExec No Partition Defined: đây là cảnh báo hiệu năng; xem task đang chạy và chờ flow hoàn tất trước khi kết luận lỗi.
 
-Dashboard chưa có dữ liệu: chạy flow hoặc notebook 05 trước, sau đó docker compose restart dashboard.
+Khi dashboard báo thiếu hoặc lẫn lần chạy, kiểm tra nhật ký `lakehouse_pipeline_runs`, chạy lại flow và bấm làm mới sau khi có `COMPLETED`.
 
 Dừng service nhưng giữ volume:
 

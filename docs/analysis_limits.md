@@ -20,6 +20,10 @@ Bài báo chỉ giữ cặp (truy vấn, đơn) có số phút còn lại trong 
 ## 3. SCD2 shipper (`scripts/scd2_evidence.py`)
 Chỉ 3/205 shipper (1,5%) đổi khu vực chính, với 21 lần đổi; nếu chỉ lưu khu vực hiện tại thì 1.977/206.431 đơn (1,0%) bị gán sai khu vực của shipper tại ngày nhận. Kết luận: SCD2 đúng về mặt dữ liệu nhưng tác động nhỏ trên bộ dữ liệu này. Đồ án **không** khẳng định SCD2 làm ETA chính xác hơn; nó là thành phần kiến trúc.
 
-## 4. Vai của các protocol
-- Protocol P: bài toán chính, so được với bài báo.
-- Protocol A-lite / B: bài toán phụ "ETA lúc nhận đơn", dùng để định lượng leakage; không so với bài báo.
+## 4. Phạm vi so sánh kết quả ETA
+
+- Protocol P là bài toán tái lập ngoại tuyến để đối chiếu mô tả với bài báo. Tốc độ shipper, tập ứng viên và cửa sổ có phụ thuộc dữ liệu tương lai. Xem [audit Protocol P](leak_inventory.md#audit-protocol-p).
+- Protocol B là bài toán phụ tại lúc nhận đơn, có kiểm soát leakage theo contract. Phép so với A-lite dùng cùng tập truy vấn.
+- Spark LR/GBT là baseline thời lượng giao hàng từ lúc nhận đơn, đánh giá trên cohort riêng có GPS hợp lệ, khoảng cách tối đa 50 km và thời lượng tối đa 24 giờ.
+
+MAE khoảng 20,7 phút mô tả LightGBM trên tập test của Protocol P. Mỗi phép xếp hạng dùng các mô hình có cùng thời điểm truy vấn, nhãn và tập đánh giá. Xem [bảng vai trò trong README](../readme.md#1-bài-toán).

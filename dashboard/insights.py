@@ -11,6 +11,11 @@ PAPER = {  # Bài báo LaDe (arXiv 2306.10675), Yantai, bài toán ETA: MAE, RMS
 LABELS = {"median_train": "Trung vị train", "speed": "SPEED", "lightgbm": "LightGBM"}
 
 
+def spark_baseline_metrics(metrics: pd.DataFrame) -> pd.DataFrame:
+    """Select rows evaluated on the Spark cohort, including its reference baselines."""
+    return metrics.loc[metrics["cohort"].eq("test (<=24h, GPS hợp lệ)")]
+
+
 def paper_summary(m: pd.DataFrame) -> pd.DataFrame:
     """Bảng rộng: mỗi mô hình một dòng, trung bình qua các seed."""
     wide = m.groupby(["model", "metric"]).value.mean().unstack()

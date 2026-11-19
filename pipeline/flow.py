@@ -10,7 +10,9 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from prefect import flow, get_run_logger, task
+from prefect.runtime import flow_run
 
+from run_state import track_run
 import steps
 
 
@@ -43,44 +45,55 @@ def t_star_dims(_upstream):
 
 
 @task(name="4. Gold: fact + huấn luyện ETA", retries=1, retry_delay_seconds=30)
-def t_gold(_upstream, train_end, late_threshold_min):
-    out = steps.build_fact_and_train(steps.get_spark(), train_end, late_threshold_min)
+def t_gold(_upstream, train_end, late_threshold_min, run_id):
+    out = steps.build_fact_and_train(steps.get_spark(), train_end, late_threshold_min, run_id=run_id)
     get_run_logger().info(out)
     return out
 
 
 @task(name="4b. Gold: leakage-safe ETA", retries=1, retry_delay_seconds=30)
-def t_eta_safe(_upstream):
-    out = steps.build_eta_safe(steps.get_spark())
+def t_eta_safe(_upstream, run_id):
+    out = steps.build_eta_safe(steps.get_spark(), run_id=run_id)
     get_run_logger().info(out)
     return out
 
 
 @task(name="4c. Gold: ETA theo bài báo LaDe (Protocol P)", retries=1, retry_delay_seconds=30)
-def t_eta_paper(_upstream):
-    out = steps.build_eta_paper(steps.get_spark())
+def t_eta_paper(_upstream, run_id):
+    out = steps.build_eta_paper(steps.get_spark(), run_id=run_id)
     get_run_logger().info(out)
     return out
 
 
 @task(name="5. Serving: đẩy bảng sang MySQL", retries=1, retry_delay_seconds=30)
-def t_serve(_upstream):
-    out = steps.serve_to_mysql(steps.get_spark())
+def t_serve(_upstream, run_id):
+    out = steps.serve_to_mysql(steps.get_spark(), run_id=run_id)
     get_run_logger().info(out)
     return out
 
 
 @flow(name="delivery-lakehouse-pipeline", log_prints=True)
 def delivery_pipeline(train_end: str = "2022-10-01", late_threshold_min: float | None = None):
-    bronze = t_bronze()
-    silver = t_silver(bronze)
-    dim = t_dim(silver)
-    star = t_star_dims(dim)
-    eta_safe = t_eta_safe(dim)
-    eta_paper = t_eta_paper(dim)
-    gold = t_gold(star, train_end, late_threshold_min)
-    served = t_serve(gold)
-    return {"bronze": bronze, "silver": silver, "dim": dim, "star_dims": star, "eta_safe": eta_safe, "eta_paper": eta_paper, "gold": gold, "served": served}
+    with track_run(steps.get_spark(), steps._jdbc(), flow_run.id) as run:
+        get_run_logger().info("Pipeline run_id=%s", run.run_id)
+        run.stage("bronze")
+        bronze = t_bronze()
+        run.stage("silver")
+        silver = t_silver(bronze)
+        run.stage("courier_scd2")
+        dim = t_dim(silver)
+        run.stage("star_dimensions")
+        star = t_star_dims(dim)
+        run.stage("eta_safe")
+        eta_safe = t_eta_safe(dim, run.run_id)
+        run.stage("eta_paper")
+        eta_paper = t_eta_paper(dim, run.run_id)
+        run.stage("fact_and_baseline")
+        gold = t_gold(star, train_end, late_threshold_min, run.run_id)
+        run.stage("serving")
+        served = t_serve(gold, run.run_id)
+    return {"run_id": run.run_id, "bronze": bronze, "silver": silver, "dim": dim,
+            "star_dims": star, "eta_safe": eta_safe, "eta_paper": eta_paper, "gold": gold, "served": served}
 
 
 if __name__ == "__main__":

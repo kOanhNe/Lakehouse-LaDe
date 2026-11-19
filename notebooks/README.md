@@ -35,7 +35,7 @@ Chờ cell của notebook trước hoàn tất trước khi chạy notebook sau.
 - 02 trở đi cần bảng upstream đã tạo.
 - 04c có thể mất vài phút vì tạo mẫu và huấn luyện LightGBM.
 - PATH_NOT_FOUND nghĩa là bảng upstream chưa có hoặc notebook chạy sai thứ tự.
-- Sau notebook 05, mở dashboard tại http://localhost:8501.
+- Prefect ghi trạng thái hoàn tất và mã lần chạy cho dashboard tại http://localhost:8501. Notebook gọi từng bước để kiểm tra riêng, nên hãy chạy ngoài thời gian Prefect đang ghi bảng và chạy flow đầy đủ để công bố lại dashboard.
 
 Nếu muốn chạy toàn bộ một lần:
 
