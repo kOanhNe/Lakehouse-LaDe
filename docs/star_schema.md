@@ -1,21 +1,31 @@
-# Star schema hien tai
+# Star schema
 
-So do bang va quan he day du nam trong [data_warehouse.txt](data_warehouse.txt).
+Fact trung tâm `fact_delivery_task_gold` nối với **5 dimension** bằng khóa thay thế (surrogate key):
 
-Day la star schema toi gian hien tai: `fact_delivery_task_gold` la fact trung tam, `dim_courier_silver` la dimension SCD2. `region_id` va `aoi_id` dang la degenerate dimensions trong fact vi pipeline chua tao `dim_region` va `dim_aoi`.
+| Dimension | Khóa | Thuộc tính | Nối với fact bằng | Ghi chú |
+|---|---|---|---|---|
+| `dim_courier_silver` (SCD2) | `courier_sk` | `courier_id`, `region_id` (khu chính), `effective_date`, `end_date`, `is_active` | `courier_sk` (point-in-time join theo ngày nhận) | Lưu lịch sử đổi khu của shipper |
+| `dim_region_gold` | `region_sk` | `region_id`, tâm (`centroid_lat/lng`), hộp bao (`min/max_lat/lng`), `distinct_aoi_observed` | `region_sk` | 17 dòng. Thuộc tính suy ra từ tọa độ đơn, dữ liệu không có tên khu |
+| `dim_aoi_gold` | `aoi_sk` | `aoi_id`, `aoi_type`, `centroid_lat/lng` | `aoi_sk` | Mỗi `aoi_id` chỉ có 1 `aoi_type` (đã kiểm tra). 8.152 AOI xuất hiện trong Silver |
+| `dim_date_gold` | `date_key` (yyyymmdd) | ngày, năm, tháng, tuần, thứ, tên thứ, cuối tuần | `accept_date_key`, `delivery_date_key` | Role-playing: một dimension, hai vai (ngày nhận, ngày giao). Phủ từ ngày đầu đến ngày cuối của dữ liệu |
+| `dim_hour_gold` | `hour_key` (0-23) | buổi trong ngày (Sáng/Trưa/Chiều/Tối/Đêm) | `accept_hour_key` | 24 dòng |
 
-## Fact trung tam
+`region_id`, `aoi_id`, `courier_id` vẫn được giữ trong fact làm khóa nghiệp vụ để truy vết về Bronze.
 
-`fact_delivery_task_gold` co grain mot dong cho mot don giao hang. Khoa chinh nghiep vu la `order_id`. `courier_id` duoc point-in-time join vao dimension courier. `delivery_minutes` la nhan cua bai toan phu.
+## Vì sao region không nằm trong dim_aoi
+Dữ liệu cho thấy 350 AOI xuất hiện ở hơn một region (quan hệ không phân cấp). Nếu nhét `region_id` vào `dim_aoi` thì một AOI sẽ bị gán sai khu. Vì vậy `region_sk` là khóa ngoại riêng của fact.
 
-## Dimension courier
+## Fact trung tâm
+`fact_delivery_task_gold` có grain một dòng cho một đơn giao, khóa nghiệp vụ `order_id`. Khi dựng, pipeline kiểm tra: số dòng không đổi sau khi gắn khóa, không khóa nào rỗng, mọi khóa ngoại đều tồn tại trong dimension tương ứng (`attach_dimension_keys`). `delivery_minutes` là nhãn của bài toán phụ.
 
-`dim_courier_silver` co khoa ghep `courier_id + effective_date`, voi `end_date` de bieu dien khoang hieu luc SCD2. Fact chi duoc join voi ban ghi dimension bao phu `order_date`.
+## Các fact khác (fact constellation)
+- `eta_safe_gold`: grain một đơn tại một thời điểm truy vấn, khóa `order_id + query_ts`.
+- `eta_paper_gold` (Protocol P): grain một (lần truy vấn, đơn còn cầm), khóa `query_id`.
+- `eta_safe_metrics_gold`, `eta_paper_metrics_gold`: kết quả đo theo lần chạy, mô hình, seed.
 
-## Fact ETA
+## Bảng chất lượng
+`delivery_rejected` giữ các dòng bị loại ở Silver cùng `reject_reason`. Phục vụ audit, không tham gia fact.
 
-`eta_safe_gold` co grain mot candidate tai mot query time, khoa ghep `order_id + query_ts`. Day la fact phuc vu bai toan ETA chinh, khong phai dimension. `target_remaining_minutes` la nhan va khong duoc di vao feature matrix. `eta_safe_metrics_gold` luu metric theo run, split va seed.
-
-## Bang chat luong
-
-`delivery_rejected` luu cac dong bi tu choi o Silver cung `reject_reason`. Bang nay phuc vu audit va lineage, khong tham gia vao fact ETA.
+## Ghi chú trung thực
+- Dữ liệu chỉ có mã (`region_id`, `aoi_type`), không có tên khu vực hay tên loại AOI. Vì vậy thuộc tính của `dim_region` và `dim_aoi` là thuộc tính tính từ tọa độ, không phải thuộc tính do mình đặt ra.
+- `dim_aoi` có 8.152 dòng, ít hơn 8.163 AOI của file gốc: 11 AOI chỉ xuất hiện trong các dòng bị loại sang `delivery_rejected`.
