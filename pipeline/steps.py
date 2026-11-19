@@ -51,13 +51,62 @@ def _jdbc():
         "driver": "com.mysql.cj.jdbc.Driver",
         "user": os.getenv("MYSQL_USER", "delivery"),
         "password": os.getenv("MYSQL_PASSWORD", "delivery"),
-        "truncate": "true",
     }
 
 
-def write_mysql(df, table):
-    df.coalesce(1).write.format("jdbc").options(**_jdbc()).option("dbtable", table).mode("overwrite").save()
-    return df.count()
+def write_mysql(df, table, *, run_id=None):
+    if run_id is not None:
+        df = df.withColumn("pipeline_run_id", F.lit(run_id))
+    expected = df.count()
+    if not expected:
+        raise ValueError(f"Bảng {table} rỗng")
+    options = {**_jdbc(), "dbtable": table}
+    df.coalesce(1).write.format("jdbc").options(**options).mode("overwrite").save()
+    written = df.sparkSession.read.format("jdbc").options(**options).load()
+    if run_id is not None:
+        result = written.agg(F.count("*").alias("total"),
+                             F.count(F.when(F.col("pipeline_run_id") == run_id, 1)).alias("matched")).first()
+        if result.total != result.matched:
+            raise ValueError(f"MySQL {table}: dữ liệu thuộc nhiều lần chạy")
+        actual = result.total
+    else:
+        actual = written.count()
+    if actual != expected:
+        raise ValueError(f"MySQL {table}: đã đọc lại {actual}, cần {expected} dòng")
+    return actual
+
+
+def read_bronze_csv(spark, source):
+    from src.eta.dataset import SOURCE_COLUMNS
+
+    df = spark.read.csv(source, header=True, inferSchema=False, mode="FAILFAST")
+    if df.columns != SOURCE_COLUMNS:
+        raise ValueError(f"Sai cấu trúc CSV LaDe-D: {df.columns}")
+    return df
+
+
+def reconcile_order_keys(source, output, label):
+    """Check an exact one-to-one mapping, including missing and extra orders."""
+    expected = source.select("order_id", F.lit(1).alias("expected"), F.lit(0).alias("actual"))
+    actual = output.select("order_id", F.lit(0).alias("expected"), F.lit(1).alias("actual"))
+    mismatches = (expected.unionByName(actual).groupBy("order_id").agg(
+        F.sum("expected").alias("expected"), F.sum("actual").alias("actual"))
+        .filter("order_id IS NULL OR trim(order_id) = '' OR expected <> 1 OR actual <> 1"))
+    if mismatches.limit(1).count():
+        raise ValueError(f"{label}: khóa order_id thiếu, dư hoặc trùng")
+
+
+def reconcile_silver(bronze, silver, rejected):
+    reconcile_order_keys(bronze, silver.select("order_id").unionByName(rejected.select("order_id")),
+                         "Bronze → Silver/Rejected")
+    valid_timestamp = F.col("accept_ts").isNotNull() & F.col("delivery_ts").isNotNull()
+    eligible = F.coalesce(valid_timestamp & (F.col("delivery_ts") > F.col("accept_ts")), F.lit(False))
+    expected_reason = F.when(~valid_timestamp, "invalid_timestamp").otherwise("non_positive_duration")
+    if silver.filter(~eligible).limit(1).count():
+        raise ValueError("Silver chứa dòng có timestamp lỗi hoặc thời lượng không dương")
+    if rejected.filter(eligible | ~F.col("reject_reason").eqNullSafe(expected_reason)).limit(1).count():
+        raise ValueError("Rejected chứa dòng hợp lệ hoặc sai lý do từ chối")
+    return {"bronze_rows": bronze.count(), "silver_rows": silver.count(), "rejected_rows": rejected.count()}
 
 
 # ---------------------------------------------------------------- 1. Bronze
@@ -65,19 +114,19 @@ def ingest_bronze(spark):
     src = os.getenv("SOURCE_PATH", "s3a://lakehouse/delivery_yt.csv")
     if not _exists(spark, src):
         src = os.getenv("LOCAL_SOURCE", "file:///home/jovyan/data/delivery_yt.csv")
-    df = spark.read.csv(src, header=True, inferSchema=False, mode="FAILFAST")
+    df = read_bronze_csv(spark, src)
     require_unique_orders(df)
     n = df.count()
     if n == 0:
         raise ValueError("CSV rỗng")
     (df.write.format("delta").mode("overwrite").option("overwriteSchema", "true").save(BRONZE))
-    return {"source": src, "bronze_rows": n}
+    persisted = spark.read.format("delta").load(BRONZE)
+    reconcile_order_keys(df, persisted, "CSV → Bronze")
+    return {"source": src, "bronze_rows": persisted.count()}
 
 
 # ---------------------------------------------------------------- 2. Silver
-def transform_silver(spark):
-    df = spark.read.format("delta").load(BRONZE)
-    require_unique_orders(df)
+def split_silver(df):
     d = (df.withColumn("accept_ts", parse_timestamp("accept_time"))
            .withColumn("delivery_ts", parse_timestamp("delivery_time")))
     for c in ["lng", "lat", "accept_gps_lng", "accept_gps_lat", "delivery_gps_lng", "delivery_gps_lat"]:
@@ -108,13 +157,17 @@ def transform_silver(spark):
                             F.when(F.col("q_invalid_timestamp"), "invalid_timestamp")
                              .when(F.col("q_negative_duration") | F.col("q_zero_duration"), "non_positive_duration")
                              .otherwise("duration_not_eligible")))
-    final = d.filter(F.col("eligible_duration"))
-    before, after, rej = df.count(), final.count(), rejected.count()
-    if after + rej != before:
-        raise ValueError("Silver + rejected không bằng Bronze")
+    return d.filter(F.col("eligible_duration")), rejected
+
+
+def transform_silver(spark):
+    df = spark.read.format("delta").load(BRONZE)
+    require_unique_orders(df)
+    final, rejected = split_silver(df)
     final.write.format("delta").mode("overwrite").option("overwriteSchema", "true").save(SILVER)
     rejected.write.format("delta").mode("overwrite").option("overwriteSchema", "true").save(REJECTED)
-    return {"bronze_rows": before, "silver_rows": after, "rejected_rows": rej}
+    return reconcile_silver(df, spark.read.format("delta").load(SILVER),
+                            spark.read.format("delta").load(REJECTED))
 
 
 # ------------------------------------------------------- 3. dim_courier SCD2
@@ -148,19 +201,34 @@ def _metrics(df, label, pred_col):
         F.sum((F.col(pred_col) - F.col(label)) ** 2).alias("sse"),
         F.sum((F.col(label) - F.lit(df.agg(F.avg(label)).first()[0])) ** 2).alias("sst"),
     ).first()
-    return r["n"], float(r["mae"]), float(r["rmse"]), float(1 - r["sse"] / r["sst"])
+    r2 = float(1 - r["sse"] / r["sst"]) if r["sst"] else None
+    return r["n"], float(r["mae"]), float(r["rmse"]), r2
 
 
-def build_fact_and_train(spark, train_end="2022-10-01", late_threshold_min=None):
+def build_fact(spark):
     silver = spark.read.format("delta").load(SILVER)
     dim = spark.read.format("delta").load(DIM)
     fact = join_courier_history(silver, dim)
     fact = attach_dimension_keys(fact, {n: spark.read.format("delta").load(p) for n, p in DIMS.items()})
-    n_silver, n_fact = silver.count(), fact.count()
-    if n_fact != n_silver:
-        raise ValueError(f"Fact ({n_fact}) khác Silver ({n_silver})")
     fact.write.format("delta").mode("overwrite").option("overwriteSchema", "true").save(FACT)
     fact = spark.read.format("delta").load(FACT)
+    reconcile_order_keys(silver, fact, "Silver → Fact")
+    return fact
+
+
+def build_fact_and_train(spark, train_end="2022-10-01", late_threshold_min=None, *, run_id=None):
+    fact = build_fact(spark)
+    cached = []
+    try:
+        return _train_baseline(fact, train_end, late_threshold_min, run_id, cached)
+    finally:
+        for frame in reversed(cached):
+            frame.unpersist()
+
+
+def _train_baseline(fact, train_end, late_threshold_min, run_id, cached):
+    spark = fact.sparkSession
+    n_silver = fact.count()
 
     # Cohort ML: GPS nhận đơn hợp lệ, <= 24h, khoảng cách <= 50 km
     ml = fact.filter(F.col("eligible_ml_distance") & (F.col("delivery_minutes") <= 1440)
@@ -186,6 +254,7 @@ def build_fact_and_train(spark, train_end="2022-10-01", late_threshold_min=None)
     train = train.join(cstat, "courier_id", "left").fillna({"courier_train_avg_min": global_avg})
     test = test.join(cstat, "courier_id", "left").fillna({"courier_train_avg_min": global_avg})
     train, test = train.cache(), test.cache()
+    cached.extend([train, test])
     n_train, n_test = train.count(), test.count()
     if n_train < 2 or n_test < 2:
         raise ValueError("Train/test quá nhỏ, chỉnh train_end")
@@ -217,6 +286,7 @@ def build_fact_and_train(spark, train_end="2022-10-01", late_threshold_min=None)
             .select("order_id", "courier_id", "region_id", "aoi_type", "order_date", "distance_km",
                     "accept_hour", "delivery_minutes", "pred_lr", "pred_gbt", "pred_median", "pred_mean")
             .cache())
+    cached.append(pred)
     pred.write.format("delta").mode("overwrite").option("overwriteSchema", "true").save(PRED)
 
     run_ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -224,20 +294,21 @@ def build_fact_and_train(spark, train_end="2022-10-01", late_threshold_min=None)
     for name, col in [("Baseline: trung vị", "pred_median"), ("Baseline: trung bình", "pred_mean"),
                       ("Linear Regression", "pred_lr"), ("GBT", "pred_gbt")]:
         n, mae, rmse, r2 = _metrics(pred, "delivery_minutes", col)
-        rows.append((name, "test (<=24h, GPS hợp lệ)", n, round(mae, 2), round(rmse, 2), round(r2, 4), run_ts))
+        rows.append((name, "test (<=24h, GPS hợp lệ)", n, round(mae, 2), round(rmse, 2),
+                     round(r2, 4) if r2 is not None else None, run_ts))
     b_mae, b_rmse = os.getenv("BENCHMARK_MAE"), os.getenv("BENCHMARK_RMSE")
     if b_mae and b_rmse:
         rows.append((os.getenv("BENCHMARK_NAME", "Benchmark bài báo gốc"), "theo bài báo",
                      None, float(b_mae), float(b_rmse), None, run_ts))
     metrics = spark.createDataFrame(
         rows, "model string, cohort string, n long, mae double, rmse double, r2 double, run_ts string")
-    write_mysql(metrics, "ml_metrics")
+    write_mysql(metrics, "ml_metrics", run_id=run_id)
 
     names = NUM_FEATURES + ["aoi_type", "region_id"]
     imp = spark.createDataFrame(
         [(n_, float(v)) for n_, v in zip(names, gbt.featureImportances.toArray())],
         "feature string, importance double")
-    write_mysql(imp, "ml_feature_importance")
+    write_mysql(imp, "ml_feature_importance", run_id=run_id)
 
     if late_threshold_min is None:
         late_threshold_min = float(train.approxQuantile("delivery_minutes", [0.9], 0.01)[0])
@@ -246,14 +317,14 @@ def build_fact_and_train(spark, train_end="2022-10-01", late_threshold_min=None)
         "run_ts string, train_end string, silver_rows long, train_rows long, test_rows long, "
         "late_threshold_min double")
     info.write.format("delta").mode("overwrite").option("overwriteSchema", "true").save(RUN_INFO)
-    write_mysql(info, "pipeline_run_info")
+    write_mysql(info, "pipeline_run_info", run_id=run_id)
     out = {r[0]: {"mae": r[3], "rmse": r[4], "r2": r[5]} for r in rows}
     out.update({"train_rows": n_train, "test_rows": n_test, "late_threshold_min": late_threshold_min})
     return out
 
 
 # --------------------------------------------------------- 4b. Leakage-safe ETA
-def build_eta_safe(spark, seeds=(42, 43, 44)):
+def build_eta_safe(spark, seeds=(42, 43, 44), *, run_id=None):
     """Run the registered pandas/LightGBM ETA protocol and publish Delta outputs.
 
     Bronze is converted once to pandas because this dataset is 206K rows; the
@@ -281,7 +352,7 @@ def build_eta_safe(spark, seeds=(42, 43, 44)):
     scored = test[["order_id", "courier_id", "query_ts", "courier_day",
                    "target_remaining_minutes"]].copy()
     scored["prediction_minutes"] = evaluate(model, test, features)["predictions"]
-    scored["run_id"] = uuid.uuid4().hex
+    scored["run_id"] = run_id or uuid.uuid4().hex
     metrics = []
     for seed, fitted in models.items():
         for split, frame in [("validation", validation), ("test", test)]:
@@ -293,35 +364,32 @@ def build_eta_safe(spark, seeds=(42, 43, 44)):
     write_mysql(spark.createDataFrame(
         metrics,
         "run_id string, protocol string, split string, n long, mae double, rmse double, seed int, execution_mode string"),
-        "eta_safe_metrics")
+        "eta_safe_metrics", run_id=run_id)
     return {"run_id": scored.run_id.iloc[0], "train_rows": len(train), "validation_rows": len(validation),
             "test_rows": len(test), "test_mae": next(row[4] for row in metrics if row[2] == "test" and row[6] == primary_seed),
             "test_rmse": next(row[5] for row in metrics if row[2] == "test" and row[6] == primary_seed), "seeds": list(seeds)}
 
 
-def build_eta_paper(spark, seeds=(42, 43, 44)):
+def build_eta_paper(spark, seeds=(42, 43, 44), *, run_id=None):
     """Protocol P: bài toán ETA của bài báo LaDe (truy vấn tại lúc giao xong, nhãn 0-120 phút)."""
     from src.eta import paper_protocol
 
     raw = spark.read.format("delta").load(BRONZE).select(
         "courier_id", "ds", "lat", "lng", "aoi_type", "accept_time", "delivery_time").toPandas()
     metrics, stats, scored = paper_protocol.run(raw, seeds)
-    run_id = uuid.uuid4().hex
-    metrics.insert(0, "run_id", run_id)
+    experiment_id = run_id or uuid.uuid4().hex
+    metrics.insert(0, "run_id", experiment_id)
     spark.createDataFrame(metrics, "run_id string, model string, seed long, metric string, value double") \
         .write.format("delta").mode("overwrite").option("overwriteSchema", "true").save(ETA_PAPER_METRICS)
-    spark.createDataFrame(scored.assign(run_id=run_id)).write.format("delta").mode("overwrite") \
+    spark.createDataFrame(scored.assign(run_id=experiment_id)).write.format("delta").mode("overwrite") \
         .option("overwriteSchema", "true").save(ETA_PAPER)
     write_mysql(spark.createDataFrame(metrics, "run_id string, model string, seed long, metric string, value double"),
-                "eta_paper_metrics")
-    return {"run_id": run_id, **stats}
+                "eta_paper_metrics", run_id=run_id)
+    return {"run_id": experiment_id, **stats}
 
 
 # ------------------------------------------------------------ 5. Serving
-def serve_to_mysql(spark):
-    fact = spark.read.format("delta").load(FACT)
-    pred = spark.read.format("delta").load(PRED)
-    thr = spark.read.format("delta").load(RUN_INFO).first()["late_threshold_min"]
+def serving_frames(fact, pred, thr):
     late = (F.col("delivery_minutes") > F.lit(thr)).cast("double")
 
     reg = fact.groupBy("courier_id", "region_id").count()
@@ -388,15 +456,21 @@ def serve_to_mysql(spark):
         F.round("delivery_minutes", 1).alias("actual_minutes"),
         F.round("pred_lr", 1).alias("pred_lr"), F.round("pred_gbt", 1).alias("pred_gbt")))
 
-    out = {}
-    for name, df in [("agg_courier_performance", agg_courier), ("agg_region_daily", agg_region_daily),
-                     ("agg_hourly", agg_hourly), ("agg_region_error", agg_region_error),
-                     ("agg_region_summary", agg_region_summary), ("agg_overview", agg_overview),
-                     ("eta_prediction_sample", sample)]:
-        out[name] = write_mysql(df, name)
-        if out[name] == 0:
-            raise ValueError(f"Bảng {name} rỗng")
+    return {
+        "agg_courier_performance": agg_courier, "agg_region_daily": agg_region_daily,
+        "agg_hourly": agg_hourly, "agg_region_error": agg_region_error,
+        "agg_region_summary": agg_region_summary, "agg_overview": agg_overview,
+        "eta_prediction_sample": sample,
+    }
+
+
+def serve_to_mysql(spark, *, run_id=None):
+    fact = spark.read.format("delta").load(FACT)
+    pred = spark.read.format("delta").load(PRED)
+    thr = spark.read.format("delta").load(RUN_INFO).first()["late_threshold_min"]
+    out = {name: write_mysql(df, name, run_id=run_id)
+           for name, df in serving_frames(fact, pred, thr).items()}
     for name, path in DIMS.items():  # dimension cho Metabase / truy vấn SQL
-        out[name] = write_mysql(spark.read.format("delta").load(path), name)
-    out["dim_courier"] = write_mysql(spark.read.format("delta").load(DIM), "dim_courier")
+        out[name] = write_mysql(spark.read.format("delta").load(path), name, run_id=run_id)
+    out["dim_courier"] = write_mysql(spark.read.format("delta").load(DIM), "dim_courier", run_id=run_id)
     return out

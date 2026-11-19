@@ -95,6 +95,9 @@ services:
       - ./scripts:/home/jovyan/work/scripts:ro
       - ./src:/home/jovyan/work/src:ro
       - ./config:/home/jovyan/work/config:ro
+      - ./tests:/home/jovyan/tests:ro
+      - ./pytest.ini:/home/jovyan/pytest.ini:ro
+      - ./dashboard:/home/jovyan/dashboard:ro
       - ./data:/home/jovyan/data:ro
       - ./reports:/home/jovyan/reports
     environment:

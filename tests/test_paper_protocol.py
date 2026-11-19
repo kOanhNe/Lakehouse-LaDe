@@ -43,6 +43,38 @@ def test_split_dates_disjoint():
     assert list(s.values()).count("train") == 12
 
 
+def test_paper_spd_uses_future_days():
+    today = raw_frame()
+    tomorrow = today.assign(
+        ds="0602", accept_time=today.accept_time.str.replace("06-01", "06-02"),
+        delivery_time=today.delivery_time.str.replace("06-01", "06-02"),
+    )
+    base, _, base_spd = pp.clean(today)
+    extended, _, extended_spd = pp.clean(pd.concat([today, tomorrow.assign(lat=[37.30, 37.36, 37.41])]))
+    split = {"0601": "train"}
+    before, _ = pp.build_samples(base, base_spd, split)
+    after, _ = pp.build_samples(extended, extended_spd, split)
+    pd.testing.assert_frame_equal(before.drop(columns="spd"), after.drop(columns="spd"))
+    assert (after.spd > before.spd).all()
+
+
+def test_paper_ntodo_and_rank_use_future_label_cap():
+    raw = raw_frame().assign(aoi_type=[1, 2, 3])
+    near = raw.iloc[[1]].assign(lat=37.305, aoi_type=4, delivery_time="06-01 09:45:00")
+    split = {"0601": "train"}
+    def first_query(extra):
+        ordered, _, spd = pp.clean(pd.concat([raw, extra]))
+        samples, _ = pp.build_samples(ordered, spd, split)
+        return samples.loc[samples.query_id.eq("1_0601_0") & samples.aoi.eq(2)].iloc[0]
+
+    near_completion = first_query(near)
+    late_completion = first_query(near.assign(delivery_time="06-01 12:30:00"))
+    assert near_completion.elapsed == late_completion.elapsed
+    assert near_completion.target_remaining_minutes == late_completion.target_remaining_minutes
+    assert (near_completion.ntodo, late_completion.ntodo) == (3, 2)
+    assert (near_completion["rank"], late_completion["rank"]) == (1, 0)
+
+
 def test_query_grid_is_used_and_shared_by_both_protocols():
     from src.eta.dataset import build_eta_samples
     n = 20

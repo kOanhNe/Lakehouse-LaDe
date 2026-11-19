@@ -24,6 +24,15 @@ def test_paper_insights_empty_is_safe():
     assert insights.paper_insights(pd.DataFrame(columns=["model", "seed", "metric", "value"])) == ["Chưa đủ metric để nhận xét."]
 
 
+def test_spark_baseline_excludes_legacy_paper_reference():
+    frame = pd.DataFrame({
+        "model": ["Linear Regression", "GBT", "Legacy paper benchmark"],
+        "cohort": ["test (<=24h, GPS hợp lệ)", "test (<=24h, GPS hợp lệ)", "theo bài báo"],
+        "mae": [109.88, 92.29, 20.7],
+    })
+    assert insights.spark_baseline_metrics(frame).model.tolist() == ["Linear Regression", "GBT"]
+
+
 def test_overview_and_courier_insights():
     o = pd.Series({"avg_delivery_minutes": 268.0, "median_delivery_minutes": 208.0})
     h = pd.DataFrame({"accept_hour": [8, 9], "total_orders": [10, 50], "median_delivery_minutes": [100., 300.]})

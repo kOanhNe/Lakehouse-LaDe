@@ -7,14 +7,16 @@ về một lần chạy Prefect cụ thể.
 from __future__ import annotations
 
 import os
-from datetime import datetime
 
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 import insights
+from serving import LATEST_RUN_SQL, load_snapshot
 from sqlalchemy import create_engine, text
+from sqlalchemy.engine import URL
+from sqlalchemy.exc import ProgrammingError, SQLAlchemyError
 
 st.set_page_config(page_title="LaDe-D | Lakehouse Analytics", page_icon="🚚", layout="wide",
                    initial_sidebar_state="expanded")
@@ -32,9 +34,9 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 
-DB_URL = (f"mysql+pymysql://{os.getenv('MYSQL_USER', 'delivery')}:{os.getenv('MYSQL_PASSWORD', 'delivery')}"
-          f"@{os.getenv('MYSQL_HOST', 'mysql')}:{os.getenv('MYSQL_PORT', '3306')}/"
-          f"{os.getenv('MYSQL_DB', 'delivery_source')}")
+DB_URL = URL.create("mysql+pymysql", username=os.getenv("MYSQL_USER", "delivery"),
+                    password=os.getenv("MYSQL_PASSWORD", "delivery"), host=os.getenv("MYSQL_HOST", "mysql"),
+                    port=int(os.getenv("MYSQL_PORT", "3306")), database=os.getenv("MYSQL_DB", "delivery_source"))
 
 
 @st.cache_resource
@@ -42,21 +44,26 @@ def db_engine():
     return create_engine(DB_URL, pool_pre_ping=True, pool_recycle=1800)
 
 
-@st.cache_data(ttl=120, show_spinner=False)
-def read_table(name: str) -> pd.DataFrame | None:
-    allowed = {
-        "agg_overview", "agg_region_daily", "agg_hourly", "agg_region_summary",
-        "agg_region_error", "agg_courier_performance", "ml_metrics",
-        "ml_feature_importance", "eta_prediction_sample", "eta_safe_metrics",
-        "eta_paper_metrics", "pipeline_run_info",
-    }
-    if name not in allowed:
-        raise ValueError(name)
-    try:
-        with db_engine().connect() as connection:
-            return pd.read_sql(text(f"SELECT * FROM `{name}`"), connection)
-    except Exception:
-        return None
+def read_serving():
+    with db_engine().connect().execution_options(isolation_level="AUTOCOMMIT") as connection:
+        def read_run():
+            try:
+                result = connection.execute(text(LATEST_RUN_SQL)).mappings().first()
+            except ProgrammingError as error:
+                if error.orig.args[0] == 1146:
+                    return None
+                raise
+            return dict(result) if result else None
+
+        def read_table(name):
+            try:
+                return pd.read_sql(text(f"SELECT * FROM `{name}`"), connection)
+            except ProgrammingError as error:
+                if error.orig.args[0] == 1146:
+                    return None
+                raise
+
+        return load_snapshot(read_run, read_table)
 
 
 def fmt_minutes(value) -> str:
@@ -73,34 +80,39 @@ def chart(fig, height=380):
     st.plotly_chart(fig, width="stretch", config={"displaylogo": False})
 
 
-tables = {name: read_table(name) for name in [
-    "agg_overview", "agg_region_daily", "agg_hourly", "agg_region_summary",
-    "agg_region_error", "agg_courier_performance", "ml_metrics",
-    "ml_feature_importance", "eta_prediction_sample", "eta_safe_metrics",
-    "eta_paper_metrics", "pipeline_run_info",
-]}
+if st.sidebar.button("🔄 Làm mới dữ liệu", width="stretch"):
+    st.rerun()
 
-overview = tables["agg_overview"]
-if overview is None or overview.empty:
+try:
+    status, run, tables = read_serving()
+except SQLAlchemyError:
+    status, run, tables = "UNAVAILABLE", None, {}
+
+if status != "COMPLETED":
     st.markdown('<div class="hero"><h1>🚚 LaDe-D Yantai</h1><p>Dashboard phân tích giao hàng trên kiến trúc Lakehouse</p></div>', unsafe_allow_html=True)
-    st.warning("Chưa có dữ liệu serving trong MySQL. Hãy chạy pipeline Prefect trước, sau đó bấm Rerun.")
-    st.code("docker compose exec jupyter python /home/jovyan/pipeline/flow.py", language="powershell")
+    messages = {
+        "EMPTY": "Chưa có lần chạy Prefect được ghi nhận.",
+        "RUNNING": "Pipeline đang xử lý.",
+        "FAILED": "Lần chạy gần nhất thất bại.",
+        "INTERRUPTED": "Lần chạy gần nhất bị gián đoạn.",
+        "INCOMPLETE": "Dữ liệu serving thiếu hoặc không cùng mã lần chạy.",
+        "CHANGED": "Trạng thái pipeline vừa thay đổi. Bấm làm mới để đọc lại.",
+        "UNAVAILABLE": "Hiện không đọc được dữ liệu serving từ MySQL.",
+    }
+    st.warning(messages.get(status, "Trạng thái lần chạy chưa xác định."))
+    if run:
+        st.caption(f"Run {run['run_id']} · {run['stage']}")
     st.stop()
 
-o = overview.iloc[0]
-run_info = tables["pipeline_run_info"]
-run_text = "Chưa có thông tin lần chạy"
-if run_info is not None and not run_info.empty and "run_ts" in run_info:
-    run_text = f"Lần chạy fact gần nhất: {run_info.iloc[0]['run_ts']}"
+tables["ml_metrics"] = insights.spark_baseline_metrics(tables["ml_metrics"])
+o = tables["agg_overview"].iloc[0]
+run_text = f"Run {run['run_id']} · hoàn tất {run['ended_at']} UTC"
 
 st.markdown(f'<div class="hero"><h1>🚚 LaDe-D Yantai</h1><p>Phân tích chất lượng giao hàng, hiệu suất shipper và mô hình ETA · {run_text}</p></div>', unsafe_allow_html=True)
 
 with st.sidebar:
     st.header("Bộ lọc dashboard")
     st.caption("Các biểu đồ đọc từ bảng serving đã được Prefect ghi vào MySQL.")
-    if st.button("🔄 Làm mới dữ liệu", width="stretch"):
-        st.cache_data.clear()
-        st.rerun()
     st.divider()
     st.subheader("Thông tin hệ thống")
     st.write("**Nguồn:** LaDe-D · Yantai")
@@ -108,8 +120,8 @@ with st.sidebar:
     st.write("**Đơn vị:** phút, km")
     st.caption("Dashboard không thay thế kiểm định dữ liệu và không dùng để chọn model trên test.")
 
-tab_overview, tab_ops, tab_paper, tab_model, tab_data = st.tabs([
-    "📊 Tổng quan", "🛵 Shipper & khu vực", "🎯 ETA theo bài báo", "🤖 Bài toán phụ", "🔎 Chất lượng & lineage"
+tab_overview, tab_ops, tab_paper, tab_protocol_b, tab_spark, tab_data = st.tabs([
+    "📊 Tổng quan", "🛵 Shipper & khu vực", "🎯 Protocol P", "Protocol B", "Spark LR/GBT", "🔎 Chất lượng & lineage"
 ])
 
 
@@ -190,9 +202,9 @@ with tab_ops:
         chart(px.line(hourly.sort_values("accept_hour"), x="accept_hour", y=["total_orders", "median_delivery_minutes"], markers=True, title="Số đơn và thời gian trung vị theo giờ nhận"), 420)
 
 with tab_paper:
-    st.subheader("ETA theo bài báo LaDe (Protocol P)")
+    st.subheader("Protocol P · ETA chính, tái lập LaDe")
     st.markdown("Tại thời điểm shipper vừa giao xong một đơn, mô hình dự đoán **mỗi đơn còn đang cầm sẽ giao sau bao nhiêu phút**. "
-                "Cùng cách lấy mẫu, chia ngày và thước đo với bài báo, nên so sánh được. Chỉ tính đơn còn 1–120 phút.")
+                "Đây là phép tái lập ngoại tuyến để đối chiếu mô tả với bài báo. Cohort dùng nhãn 1–120 phút.")
     pm = tables["eta_paper_metrics"]
     if pm is None or pm.empty:
         st.info("Chưa có bảng `eta_paper_metrics`. Chạy lại pipeline (task 4c) rồi bấm làm mới.")
@@ -204,7 +216,7 @@ with tab_paper:
         both["Nguồn"] = ["Đồ án"] * len(ours) + ["Bài báo"] * len(paper_rows)
         k1, k2, k3 = st.columns(3)
         if "LightGBM" in wide.index and "SPEED" in wide.index:
-            k1.metric("MAE LightGBM", f"{wide.loc['LightGBM', 'mae']:.1f} phút",
+            k1.metric("MAE LightGBM · Protocol P", f"{wide.loc['LightGBM', 'mae']:.1f} phút",
                       f"{wide.loc['LightGBM', 'mae'] - wide.loc['SPEED', 'mae']:.1f} so với SPEED", delta_color="inverse")
             k2.metric("ACC@20 LightGBM", f"{wide.loc['LightGBM', 'acc20']:.1f}%")
             k3.metric("MAE SPEED", f"{wide.loc['SPEED', 'mae']:.1f} phút", f"bài báo: {insights.PAPER['speed'][0]}", delta_color="off")
@@ -216,29 +228,30 @@ with tab_paper:
         st.dataframe(both.round(2), width="stretch", hide_index=True)
         comments(insights.paper_insights(pm))
         st.markdown("<div class='note'><b>Lưu ý khi diễn giải.</b> Bộ lọc nhãn 1–120 phút loại khoảng một nửa số cặp (truy vấn, đơn), "
-                    "nên sai số chỉ áp dụng cho các đơn sắp giao. Khoảng cách tính bằng haversine, tốc độ SPEED tính trên toàn file như code gốc, "
-                    "và chưa có code LightGBM gốc nên chỉ so 'cùng cỡ'. LightGBM lấy trung bình 3 seed.</div>", unsafe_allow_html=True)
+                    "nên sai số chỉ áp dụng cho cohort này. Tốc độ shipper dùng cả file. Số đơn còn lại và thứ hạng khoảng cách "
+                    "phụ thuộc nhãn tương lai. LightGBM lấy trung bình 3 seed.</div>", unsafe_allow_html=True)
 
-with tab_model:
-    st.subheader("Đánh giá mô hình")
-    st.markdown("Đây là **bài toán phụ: ETA lúc nhận đơn** (query = thời điểm nhận, nhãn = `delivery_minutes`). Dùng để đo ảnh hưởng của leakage (A-lite có rò rỉ so với B đã chặn). Không so với bài báo; bài toán chính ở tab \"ETA theo bài báo\". `delivery_gps` của đơn chưa giao không được dùng.")
+with tab_protocol_b:
+    st.subheader("Protocol B · ETA tại lúc nhận đơn")
+    st.markdown("Bài toán phụ với kiểm soát leakage theo contract. Điểm truy vấn là lúc nhận đơn, "
+                "và lịch sử shipper dùng các đơn đã giao tới thời điểm đó. Đọc MAE trên tập đánh giá của Protocol B.")
     safe = tables["eta_safe_metrics"]
     if safe is not None and not safe.empty:
-        st.success("Đã có metric của Protocol B (ETA lúc nhận đơn, đã chặn leakage).")
         st.dataframe(safe, width="stretch", hide_index=True)
         test_safe = safe[safe.split.astype(str).str.lower().eq("test")]
         if not test_safe.empty:
             chart(px.bar(test_safe, x="seed", y=["mae", "rmse"], barmode="group", title="ETA lúc nhận đơn (Protocol B) theo seed", labels={"seed":"Seed", "value":"Phút"}), 380)
-    else:
-        st.info("Chưa có bảng `eta_safe_metrics`. Pipeline cũ vẫn có thể hiển thị bên dưới; chạy lại image/pipeline mới để ghi thêm bảng này.")
+
+with tab_spark:
+    st.subheader("Spark LR/GBT · Baseline thời lượng giao hàng")
+    st.markdown("Cohort Spark gồm đơn có GPS nhận hợp lệ, khoảng cách tối đa 50 km và thời lượng tối đa 24 giờ. "
+                "So sánh sai số giữa các baseline thuộc cohort này.")
     metrics = tables["ml_metrics"]
-    if metrics is not None and not metrics.empty:
-        st.subheader("Baseline và mô hình cũ")
-        st.caption("Bảng này là bài toán phụ: dự đoán delivery_minutes từ lúc nhận đơn. Không so trực tiếp với Protocol B.")
-        st.dataframe(metrics, width="stretch", hide_index=True)
-        plot = metrics.dropna(subset=["mae", "rmse"]).copy()
-        if not plot.empty:
-            chart(px.bar(plot, x="model", y=["mae", "rmse"], barmode="group", title="Sai số bài toán phụ", labels={"model":"Mô hình", "value":"Phút"}), 400)
+    st.dataframe(metrics, width="stretch", hide_index=True)
+    plot = metrics.dropna(subset=["mae", "rmse"])
+    if not plot.empty:
+        chart(px.bar(plot, x="model", y=["mae", "rmse"], barmode="group", title="Sai số trên cohort Spark",
+                     labels={"model": "Mô hình", "value": "Phút"}), 400)
     imp = tables["ml_feature_importance"]
     if imp is not None and not imp.empty:
         st.subheader("Độ quan trọng feature của GBT phụ")
@@ -246,15 +259,12 @@ with tab_model:
 
 with tab_data:
     st.subheader("Lineage và trạng thái dữ liệu")
-    st.write("Bảng phân tích được sinh từ Bronze → Silver → Gold/Serving. Dataset local: 206.431 dòng, SHA-256 `AA5BCA7FDAA8C89D4AB50A2ED2B94FB09F608ACC49FC1108A1A612E9C0F5A7AD`.")
-    st.write("Các cảnh báo chất lượng được giữ ở Silver; ngưỡng 24 giờ và 50 km chỉ là cohort phân tích, không phải bộ lọc âm thầm.")
+    st.write("Silver giữ các cờ chất lượng. Ngưỡng 24 giờ và 50 km áp dụng khi dựng cohort mô hình Spark.")
     info = tables["pipeline_run_info"]
     if info is not None and not info.empty:
         st.dataframe(info, width="stretch", hide_index=True)
     st.subheader("Tải bảng đang hiển thị")
-    choices = {key: value for key, value in tables.items() if value is not None and not value.empty}
+    choices = {key: value for key, value in tables.items() if not value.empty}
     selected_table = st.selectbox("Chọn bảng", list(choices), key="download_table")
     if selected_table:
         st.download_button("⬇️ Tải CSV", choices[selected_table].to_csv(index=False).encode("utf-8-sig"), file_name=f"{selected_table}.csv", mime="text/csv")
-
-st.caption(f"Cập nhật giao diện: {datetime.now().strftime('%Y-%m-%d %H:%M')} · Dữ liệu được cache tối đa 120 giây.")
