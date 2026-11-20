@@ -73,12 +73,14 @@ MySQL serving --> Streamlit dashboard
 | Service | Vai trò | Địa chỉ |
 |---|---|---|
 | MinIO | Object storage S3 cho CSV và Delta | localhost:9000, console 9001 |
-| Lakehouse | Hive Metastore và Spark Thrift Server | nội bộ |
+| Lakehouse (tuỳ chọn) | Hive Metastore và Spark Thrift Server | nội bộ |
 | Jupyter | Chạy notebook và pipeline | http://localhost:8888 |
 | Prefect | Điều phối flow | http://localhost:4200 |
 | MySQL | Serving tables | localhost:3306 |
 | Dashboard | Streamlit tiếng Việt | http://localhost:8501 |
-| Metabase | Khám phá dữ liệu bổ sung | http://localhost:3000 |
+| Metabase (tuỳ chọn) | Khám phá dữ liệu bổ sung | http://localhost:3000 |
+
+Pipeline đọc và ghi Delta trực tiếp theo đường dẫn `s3a://`, không đăng ký bảng vào Hive Metastore và không gọi Spark Thrift Server. Vì vậy `lakehouse` và `metabase` là tuỳ chọn: tắt chúng không ảnh hưởng đến pipeline và dashboard. Dashboard đọc từ MySQL.
 
 Sơ đồ kho dữ liệu dạng bảng nằm tại docs/data_warehouse.txt. Chi tiết star schema nằm tại docs/star_schema.md.
 
@@ -125,7 +127,7 @@ Yêu cầu:
 - Docker Desktop và Docker Compose v2;
 - Git;
 - PowerShell trên Windows;
-- ít nhất 6-8 GB RAM cấp cho Docker;
+- 6-8 GB RAM cấp cho Docker (chế độ đầy đủ), hoặc khoảng 4 GB với chế độ tiết kiệm RAM ở mục 6.2;
 - khoảng 10 GB dung lượng trống;
 - Internet ở lần build đầu.
 
@@ -166,13 +168,21 @@ Copy-Item .env.example .env
 
 Có thể giữ giá trị mặc định trong .env để chạy local. Không commit .env lên GitHub.
 
-Dockerfile cần ba gói nén đặt ngay trong thư mục gốc của repo. Tải đúng phiên bản từ Apache Archive và giữ nguyên tên file.
+Trên macOS hoặc Linux, các lệnh tương đương với ba bước kiểm tra và tạo cấu hình ở trên:
+
+~~~bash
+ls -l data/delivery_yt.csv
+shasum -a 256 data/delivery_yt.csv
+cp .env.example .env
+~~~
+
+Chỉ khi build service `lakehouse` (chế độ đầy đủ, mục 6.1) thì Dockerfile mới cần ba gói nén đặt ngay trong thư mục gốc của repo. Chế độ tiết kiệm RAM (mục 6.2) không build `lakehouse` nên không cần ba file này. Tải đúng phiên bản từ Apache Archive và giữ nguyên tên file.
 
 - [Hadoop 3.3.6](https://archive.apache.org/dist/hadoop/common/hadoop-3.3.6/hadoop-3.3.6.tar.gz) (`hadoop-3.3.6.tar.gz`)
 - [Hive 2.3.10](https://archive.apache.org/dist/hive/hive-2.3.10/apache-hive-2.3.10-bin.tar.gz) (`apache-hive-2.3.10-bin.tar.gz`)
 - [Spark 3.5.3 cho Hadoop 3](https://archive.apache.org/dist/spark/spark-3.5.3/spark-3.5.3-bin-hadoop3.tgz) (`spark-3.5.3-bin-hadoop3.tgz`)
 
-Build và khởi động:
+### 6.1 Chế độ đầy đủ (Docker từ 6-8 GB RAM)
 
 ~~~powershell
 docker compose up -d --build jupyter dashboard
@@ -181,6 +191,55 @@ docker compose ps
 
 Chờ lakehouse, jupyter, minio, mysql và prefect ở trạng thái Up/healthy.
 Nếu cần Metabase, chạy thêm `docker compose up -d metabase`.
+
+### 6.2 Chế độ tiết kiệm RAM (Docker khoảng 4 GB)
+
+Chế độ này không bật `lakehouse` (Hive Metastore và Spark Thrift) và `metabase`, là hai service tuỳ chọn và tốn nhiều RAM. Pipeline vẫn chạy đủ các bước, cùng dữ liệu và cùng các bảng.
+
+**Bước 1. Chỉnh `docker-compose.yml`** (bỏ qua nếu file đã có sẵn các dòng này).
+
+Service `mysql`, thêm dòng `command` dưới `image`:
+
+~~~yaml
+  mysql:
+    image: mysql:8.4
+    command: --performance-schema=OFF --innodb-buffer-pool-size=64M --max-connections=50
+~~~
+
+Service `jupyter`, trong `PYSPARK_SUBMIT_ARGS` thêm ba dòng (giữ nguyên các dòng còn lại):
+
+~~~yaml
+      PYSPARK_SUBMIT_ARGS: >-
+        --master local[2]
+        --driver-memory 1500m
+        --conf spark.sql.execution.arrow.pyspark.enabled=true
+        --conf spark.sql.shuffle.partitions=8
+        --conf spark.jars.ivy=/tmp/lakehouse-ivy
+        --packages ...
+        pyspark-shell
+~~~
+
+`--driver-memory 1500m` cấp bộ nhớ cho Spark driver. Tuỳ chọn Arrow giúp đổi bảng Spark sang pandas (bước 4b, 4c) tốn ít bộ nhớ hơn; nếu thiếu `pyarrow` Spark tự quay về cách cũ. `shuffle.partitions=8` giảm số phân vùng mặc định (200) cho phù hợp dữ liệu nhỏ.
+
+**Bước 2. Tắt các service đang chạy mà không cần** (bỏ qua nếu chưa bật):
+
+~~~bash
+docker compose stop lakehouse metabase dashboard
+~~~
+
+**Bước 3. Khởi động đúng các service cần cho pipeline:**
+
+~~~bash
+docker compose up -d minio minio-init
+docker compose up -d --build --no-deps mysql prefect jupyter
+docker compose ps
+~~~
+
+- Lệnh đầu bật MinIO và tạo bucket `lakehouse` (chạy lại nhiều lần vẫn an toàn). Cần chạy ít nhất một lần trên máy mới hoặc sau `docker compose down -v`, vì bước này vốn chỉ chạy khi `lakehouse` được bật.
+- `--no-deps` nghĩa là không tự bật các service mà service đó phụ thuộc (`depends_on`). Nếu thiếu cờ này, `jupyter` sẽ kéo `lakehouse` lên và làm Docker hết RAM.
+- Chờ `mysql`, `minio` và `prefect` ở trạng thái healthy rồi mới chạy flow (mục 7).
+
+Trong chế độ này không dùng `docker compose up -d` không kèm tên service, vì nó bật cả `lakehouse` và `metabase`.
 
 ## 7. Chạy toàn bộ pipeline
 
@@ -201,6 +260,12 @@ Bronze -> Silver -> courier SCD2 -> star dimensions
 Theo dõi terminal hoặc mở Prefect tại http://localhost:4200. Flow ưu tiên CSV trên MinIO nếu có, rồi dùng file local được mount nếu object không tồn tại. Log Bronze ghi URI thực tế.
 
 MySQL lưu từng lần thử trong `lakehouse_pipeline_runs` cùng mã run, Prefect flow ID, bước hiện tại và thời gian UTC. Khóa MySQL giới hạn một flow ghi dữ liệu tại một thời điểm. Trạng thái `COMPLETED` được ghi sau khi các lượt ghi và đối soát hoàn tất. `FAILED` ghi nhận lỗi trong flow. Lần chạy `RUNNING` mất phiên giữ khóa được nhận diện là `INTERRUPTED`, rồi được cập nhật vào nhật ký khi lần kế tiếp bắt đầu.
+
+Với chế độ 6.2, chạy flow khi `dashboard` đang tắt (để dành RAM). Khi Prefect báo xong, bật dashboard:
+
+~~~bash
+docker compose up -d --build --no-deps dashboard
+~~~
 
 Khi lỗi, xem bước cuối trong Prefect và chạy lại flow từ đầu. Chạy lại dùng overwrite theo batch. Delta và MySQL có thể chứa dữ liệu ghi dở giữa hai lần chạy, vì mỗi bảng được cập nhật riêng.
 
@@ -280,7 +345,7 @@ py -3.12 -m venv .venv
 Chạy trọn bộ unit test Spark và sau đó chạy integration trên Docker.
 
 ~~~powershell
-docker compose up -d jupyter dashboard
+docker compose up -d --no-deps jupyter dashboard
 docker compose exec -T jupyter python -m pip install "pytest>=8,<9"
 docker compose exec -T -w /home/jovyan jupyter python -m pytest -m "not integration" -q -p no:cacheprovider
 docker compose exec -T -w /home/jovyan jupyter python -m pytest -m integration -q -p no:cacheprovider
@@ -305,6 +370,10 @@ Phân tích độ nhạy nhãn:
 Jupyter yêu cầu token: lấy token mới bằng docker compose exec jupyter jupyter server list.
 
 JAVA_GATEWAY_EXITED: Docker thiếu RAM hoặc Spark chưa khởi động xong. Chờ service healthy rồi chạy docker compose restart jupyter.
+
+Py4JNetworkError, `Connection refused` hoặc `SparkSession$ does not exist in the JVM`: tiến trình Spark đã chết, thường do hết RAM ở bước 4b hoặc 4c (đổi Bronze sang pandas). Dùng chế độ tiết kiệm RAM (mục 6.2), tắt `lakehouse`, `metabase` và `dashboard` trong lúc chạy flow, rồi chạy lại flow từ đầu. Nếu vẫn lỗi, tăng RAM cho Docker.
+
+`NoSuchBucket` hoặc không tìm thấy bucket `lakehouse`: chạy `docker compose up -d minio minio-init` để tạo bucket.
 
 PATH_NOT_FOUND khi đọc Delta: chạy lại từ notebook tạo bảng upstream.
 
