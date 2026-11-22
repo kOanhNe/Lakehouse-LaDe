@@ -44,11 +44,17 @@ Chạy marker `not integration` trước. Bộ unit kiểm tra hợp đồng ngu
 Silver/Rejected, SCD2, các khóa dimension, fact, tổng hợp serving, trạng thái
 dashboard và các phụ thuộc tương lai của Protocol P.
 
+Kiểm thử của benchmark Protocol B cắt CSV Yantai tại 15/08/2022 và ẩn các lần
+giao sau mốc cắt. Đặc trưng AOI/GPS của tất cả đơn nhận trước mốc phải bằng
+kết quả tính từ toàn bộ file.
+
 Bộ integration cần Spark/Delta, MinIO, MySQL và API Prefect. Nó chạy flow với
 CSV mẫu và namespace riêng, tạo lỗi sau khi một bảng serving đã được ghi, xác
 nhận lần lỗi bị ẩn và chạy lại để đối chiếu grain, khóa và mã xuất dữ liệu.
 Một kiểm thử khác dùng kết nối MySQL thật để kiểm tra tranh chấp khóa, nhận biết
 mất kết nối và ghi nhận lần chạy bị gián đoạn.
+
+Các kết quả sau ghi nhận đợt kiểm thử ổn định của pipeline.
 
 | Kiểm tra | Kết quả |
 |---|---|
@@ -68,3 +74,7 @@ tái lập ngoại tuyến trên cohort của Protocol P.
 Protocol B đánh giá ETA tại lúc nhận đơn với kiểm soát leakage theo contract.
 Spark LR/GBT là baseline thời lượng giao hàng trên cohort riêng. Dashboard có
 tab cho từng bài toán. Xem [phạm vi so sánh MAE](analysis_limits.md#4-phạm-vi-so-sánh-kết-quả-eta).
+
+Script benchmark chấm baseline median và ba bộ đặc trưng Protocol B trên cùng
+73.107 đơn train và 24.647 đơn validation. Các mô hình LightGBM dùng seed
+42–44. Báo cáo CSV ghi chỉ số theo từng seed. [Nguồn dữ liệu và cách chạy](training_data_lineage.md#34-thử-nghiệm-thêm-lịch-sử-aoi-và-gps-cho-protocol-b)

@@ -93,6 +93,7 @@ feature_roles:
     - order_id
     - courier_id
     - accept_ts
+    - accept_gps_ts
     - accept_gps_lng
     - accept_gps_lat
     - lng

@@ -122,6 +122,29 @@ Train là tập fit mô hình, validation hướng dẫn dừng sớm của Ligh
 dùng để báo sai số trên dữ liệu giữ lại. So sánh MAE trong từng bài toán trên
 cùng tập đánh giá. [Cấu hình dữ liệu](../config/prereg.yaml) · [Phạm vi so sánh ETA](analysis_limits.md#4-phạm-vi-so-sánh-kết-quả-eta)
 
+### 3.4. Thử nghiệm thêm lịch sử AOI và GPS cho Protocol B
+
+Script xác nhận SHA-256 của CSV Yantai trước khi tạo tập mẫu. Cả ba biến thể dùng cùng mã đơn, mốc nhận và nhãn là số phút từ nhận đến giao. Có **73.107 đơn train** sau khi bỏ 18 đơn có nhãn từ ngày bắt đầu validation trở đi. Script chấm **24.647 đơn validation**. Tập **25.345 đơn test** dành để xác nhận sau khi chốt cấu hình.
+
+- `aoi_past_count` và `aoi_past_avg_min` dùng các đơn cùng `aoi_id` đã giao tới lúc nhận đơn đang xét. `dataset.py` chọn các cột thuộc role `completed` và tính thời lượng lịch sử từ hiệu hai timestamp.
+- `accept_to_stop_km` dùng GPS lúc nhận và tọa độ đích từ role `candidate`. GPS cần có tọa độ hợp lệ và `accept_gps_ts <= accept_ts`.
+- Baseline dùng median của nhãn train. Ba biến thể LightGBM dùng cùng cấu hình, điền giá trị thiếu bằng median từng đặc trưng trên train và chạy seed mô hình 42, 43, 44 theo `prereg.yaml`.
+
+`ACC@20` và `ACC@30` là phần trăm đơn có sai số tuyệt đối tối đa 20 và 30 phút. Các hàng LightGBM ghi trung bình qua ba seed, với độ lệch chuẩn mẫu bên cạnh MAE. Seed chọn đơn giữ ở 42, nên độ lệch chuẩn chỉ phản ánh biến động theo seed mô hình. [CSV kết quả trên LightGBM 4.7.0](../reports/eta_accept_benchmark_validation.csv)
+
+| Biến thể | MAE (phút) | ACC@20 | ACC@30 | P90 sai số tuyệt đối (phút) |
+| --- | ---: | ---: | ---: | ---: |
+| Trung vị train | 182,15 | 9,08% | 13,47% | 327,00 |
+| Protocol B | 115,12 ± 0,48 | 19,61% | 28,71% | 231,58 |
+| B + AOI | 111,14 ± 0,31 | 21,64% | 31,14% | 224,12 |
+| B + AOI + GPS | 109,60 ± 0,14 | 22,66% | 32,51% | 223,04 |
+
+Thử nghiệm gọi `build_eta_samples(..., include_aoi_gps=True)` để gắn đặc trưng vào bảng mẫu chung. Flow hiện dùng cấu hình Protocol B đã đăng ký. Muốn so Spark LR/GBT trên bảng này, cần fit lại trên cùng các mã đơn, mốc nhận và nhãn. [Script thử nghiệm](../scripts/run_eta_accept_benchmark.py) · [Hợp đồng cột](../config/schema.yaml)
+
+~~~bash
+python scripts/run_eta_accept_benchmark.py
+~~~
+
 ## 4. Dữ liệu được lưu và đưa lên dashboard
 
 Các tập train, validation và test được dựng thành DataFrame trong lúc chạy.
