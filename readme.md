@@ -120,6 +120,8 @@ Kết quả ghi vào `eta_paper_gold` và `eta_paper_metrics_gold`. Đây là k�
 
 Protocol B ghi vào `eta_safe_gold` và `eta_safe_metrics_gold`. Kiểm soát trường đầu vào theo thời điểm biết trong `config/schema.yaml` và giới hạn lịch sử shipper tới thời điểm truy vấn.
 
+Cách biến CSV Yantai thành các bảng và tập huấn luyện của từng nhánh nằm trong tài liệu nguồn dữ liệu. [Nguồn dữ liệu huấn luyện](docs/training_data_lineage.md)
+
 ## 6. Cài đặt
 
 Yêu cầu:
