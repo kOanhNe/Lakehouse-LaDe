@@ -1,5 +1,8 @@
 ﻿.git
 logs
+debug-logs
+spark_logs
+.pytest_cache
 data
 notebooks
 **/__pycache__
