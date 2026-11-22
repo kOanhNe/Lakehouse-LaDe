@@ -1,7 +1,7 @@
 # Bảng kiểm kê leakage
 
 | Nguồn có thể gây leak | A-lite | B đã chặn | B đã định lượng | Bằng chứng |
-|---|---|---|---|---|
+| --- | --- | --- | --- | --- |
 | Courier average tính từ toàn bộ dữ liệu | Có | Có | Có | `dataset.py`, so sánh A-lite/B |
 | Courier history dùng delivery sau query | Có thể xảy ra | Có | Có | expanding history trong `dataset.py` |
 | `delivery_gps` của pending/candidate | Có thể xảy ra nếu đọc raw trực tiếp | Có | Có | allowlist + truncation test |
@@ -22,7 +22,7 @@ Kết quả tái lập, cách chia dữ liệu, seed, thuật toán tạo mẫu 
 hình thành khi xem toàn bộ lịch sử.
 
 | Đặc trưng hoặc bước | Phụ thuộc vào dữ liệu tương lai | Bằng chứng |
-|---|---|---|
+| --- | --- | --- |
 | `spd` | Có. `clean` ước lượng theo shipper trên toàn file trước khi chia ngày, gồm cả lần giao sau query và các ngày validation/test. SPEED và LightGBM đều dùng tốc độ này. | Unit test thêm giao hàng ngày sau. Cặp và đặc trưng khác ngày trước giữ nguyên, `spd` thay đổi. |
 | `ntodo` | Có. `len(ok)` đếm ứng viên còn lại sau lọc theo nhãn `0 < fin[j] - fin[i] <= 120` và theo vị trí hoàn tất trong cửa sổ. | Unit test dời thời điểm giao của một đơn khác vượt ngưỡng 120 phút. Nhãn của đơn đang xét giữ nguyên, `ntodo` đổi từ 3 xuống 2. |
 | `rank` | Có. Thứ hạng khoảng cách dùng cùng tập `ok`, nên thứ hạng của đơn còn lại đổi khi nhãn tương lai loại một ứng viên gần hơn. | Cùng test phản thực tế của `ntodo` cho thấy `rank` đổi từ 1 xuống 0. |
@@ -35,3 +35,5 @@ Hai kiểm thử phản thực tế xác nhận đường phụ thuộc, chưa �
 do từng nguồn leakage. Một đánh giá point-in-time cần protocol riêng với tập pending
 dựng từ sự kiện đã quan sát, vận tốc chỉ từ lịch sử có trước query và cohort
 được định nghĩa độc lập với feature. Các metric hiện tại mô tả tái lập ngoại tuyến.
+
+Xem phép đo độ nhạy của MAE khi thay `spd`, `ntodo`, `rank` và khi đổi cohort. [Kết quả thực nghiệm](leak_measurement.md)

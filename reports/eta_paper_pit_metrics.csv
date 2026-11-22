@@ -1,0 +1,36 @@
+model,seed,metric,value
+median_train,0,mae,28.510558643172782
+median_train,0,rmse_pooled,33.18090593710534
+median_train,0,rmse_paper,32.75011395464801
+median_train,0,acc20,36.56550591294095
+median_train,0,acc30,54.3144062117372
+speed (spd cả file),0,mae,33.626848937905635
+speed (spd cả file),0,rmse_pooled,44.55231280538766
+speed (spd cả file),0,rmse_paper,40.035269171021724
+speed (spd cả file),0,acc20,40.65543703360324
+speed (spd cả file),0,acc30,54.333049485294495
+speed (spd_pit),0,mae,33.70974682457108
+speed (spd_pit),0,rmse_pooled,48.49383985512896
+speed (spd_pit),0,rmse_paper,40.194151918696456
+speed (spd_pit),0,acc20,41.02326378216595
+speed (spd_pit),0,acc30,54.721534996447694
+"lightgbm | P (gốc, có leak)",42,mae,20.670841240872907
+"lightgbm | P (gốc, có leak)",42,rmse_pooled,27.11092995823326
+"lightgbm | P (gốc, có leak)",42,rmse_paper,24.929284066633368
+"lightgbm | P (gốc, có leak)",42,acc20,59.1898741830971
+"lightgbm | P (gốc, có leak)",42,acc30,76.19757838992659
+lightgbm | chỉ sửa spd,42,mae,20.851755314539705
+lightgbm | chỉ sửa spd,42,rmse_pooled,27.36436561018141
+lightgbm | chỉ sửa spd,42,rmse_paper,25.16278644253216
+lightgbm | chỉ sửa spd,42,acc20,58.84522555841642
+lightgbm | chỉ sửa spd,42,acc30,75.86199946589541
+lightgbm | chỉ sửa ntodo+rank,42,mae,20.77149825465175
+lightgbm | chỉ sửa ntodo+rank,42,rmse_pooled,26.936076581860725
+lightgbm | chỉ sửa ntodo+rank,42,rmse_paper,24.913249628567584
+lightgbm | chỉ sửa ntodo+rank,42,acc20,58.075308747726275
+lightgbm | chỉ sửa ntodo+rank,42,acc30,75.78389926585812
+lightgbm | sửa cả ba (PIT),42,mae,20.946382254816665
+lightgbm | sửa cả ba (PIT),42,rmse_pooled,27.153582391043138
+lightgbm | sửa cả ba (PIT),42,rmse_paper,25.116955229384647
+lightgbm | sửa cả ba (PIT),42,acc20,57.620815970735094
+lightgbm | sửa cả ba (PIT),42,acc30,75.40146022180457
