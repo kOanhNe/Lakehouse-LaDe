@@ -72,7 +72,7 @@ MySQL serving --> Streamlit dashboard
 
 | Service | Vai trò | Địa chỉ |
 |---|---|---|
-| MinIO | Object storage S3 cho CSV và Delta | localhost:9000, console 9001 |
+| MinIO | Object storage S3 cho CSV và Delta | localhost:19000, console localhost:19001 |
 | Lakehouse (tuỳ chọn) | Hive Metastore và Spark Thrift Server | nội bộ |
 | Jupyter | Chạy notebook và pipeline | http://localhost:8888 |
 | Prefect | Điều phối flow | http://localhost:4200 |
