@@ -68,3 +68,8 @@ tái lập ngoại tuyến trên cohort của Protocol P.
 Protocol B đánh giá ETA tại lúc nhận đơn với kiểm soát leakage theo contract.
 Spark LR/GBT là baseline thời lượng giao hàng trên cohort riêng. Dashboard có
 tab cho từng bài toán. Xem [phạm vi so sánh MAE](analysis_limits.md#4-phạm-vi-so-sánh-kết-quả-eta).
+
+Script thử nghiệm Protocol B so ba bộ đặc trưng trên cùng 73.107 đơn train
+và 24.647 đơn validation. Hai unit test kiểm tra mốc quan sát của lịch sử
+AOI, GPS và nhãn huấn luyện. Kết quả hiện có dùng validation với seed 42.
+[Nguồn dữ liệu và cách chạy](training_data_lineage.md#34-thử-nghiệm-thêm-lịch-sử-aoi-và-gps-cho-protocol-b)
