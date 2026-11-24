@@ -72,7 +72,7 @@ Silver gắn cờ GPS, khoảng cách quá 50 km và thời lượng quá 24 gi�
 | `dim_date_gold` | Sinh một dòng cho mỗi ngày từ ngày sớm nhất đến ngày muộn nhất trong các sự kiện nhận/giao của Silver. |
 | `dim_hour_gold` | Sinh 24 dòng cho các giờ 0–23 và gán nhóm buổi trong ngày. |
 
-Prefect chạy theo thứ tự **01 → 02 → 03 → 03b → 04b → 04c → 04 → 05**. B và P chạy sau các dimension theo thứ tự điều phối nhưng lấy đầu vào ở Bronze. Các notebook của repo gọi lại từng bước trong cùng code pipeline. [Hàm dựng dimension và nối fact](../notebooks/lakehouse_common.py) · [Thứ tự Prefect](../pipeline/flow.py) · [Notebook](../notebooks/README.md)
+Theo notebook, luồng Prefect là **01 → 02 → 03 → 04b → 04c → 04 → 05**. Notebook 03 gộp hai task dựng dimension. B và P đọc Bronze. Fact đọc Silver và dimension. [Hàm dựng dimension và nối fact](../notebooks/lakehouse_common.py) · [Thứ tự Prefect](../pipeline/flow.py) · [Notebook](../notebooks/README.md)
 
 ## 3. Ba nhánh tạo tập học
 
@@ -140,6 +140,8 @@ Script xác nhận SHA-256 của CSV Yantai trước khi tạo tập mẫu. Cả
 | B + AOI + GPS | 109,60 ± 0,14 | 22,66% | 32,51% | 223,04 |
 
 Thử nghiệm gọi `build_eta_samples(..., include_aoi_gps=True)` để gắn đặc trưng vào bảng mẫu chung. Flow hiện dùng cấu hình Protocol B đã đăng ký. Muốn so Spark LR/GBT trên bảng này, cần fit lại trên cùng các mã đơn, mốc nhận và nhãn. [Script thử nghiệm](../scripts/run_eta_accept_benchmark.py) · [Hợp đồng cột](../config/schema.yaml)
+
+Notebook 04b chọn một mẫu validation để đối chiếu nhãn, lịch sử AOI, Haversine và tổng giá trị lá cây với kết quả mô hình. [Đối chiếu từ CSV đến dự đoán](../notebooks/04b_eta_safe.ipynb)
 
 ~~~bash
 python scripts/run_eta_accept_benchmark.py

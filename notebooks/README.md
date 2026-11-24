@@ -1,43 +1,33 @@
-# Hướng dẫn chạy notebook
+# Notebook từ dữ liệu gốc đến ETA
 
-Các notebook gọi lại đúng các hàm trong pipeline/steps.py. Chạy notebook và chạy Prefect sẽ dùng cùng logic.
+**Để giải thích một dự đoán**, mở notebook 04b. Notebook đọc file Yantai, kiểm tra checksum, cho thấy số đơn sau từng bước và lần theo các lá cây LightGBM để đối chiếu với `predict()`. Có thể mở các kết quả đã lưu hoặc chạy lại bằng kernel Python có các thư viện trong `requirements.txt`. [Đối chiếu tính tay](04b_eta_safe.ipynb)
 
-## Chuẩn bị
+## File đầu vào và thứ tự xem
 
-Từ thư mục gốc dự án:
+| Notebook theo luồng Prefect | Đọc từ | Xem được |
+| --- | --- | --- |
+| [00 · Kiểm kê dữ liệu](00_data_audit.ipynb) | `data/delivery_yt.csv` | Header, mẫu dòng gốc và báo cáo chất lượng. Bước này phục vụ audit. |
+| [01 · Bronze](01_ingest_bronze.ipynb) | CSV ở MinIO hoặc bản file trong Jupyter | Đường dẫn thực tế được chọn, kiểm tra khóa và các cột gốc trong Delta. |
+| [02 · Silver và Rejected](02_transform_silver.ipynb) | `delivery_bronze` | Quy tắc tách hai bảng, phép tính thời lượng và lý do từ chối. |
+| [03 · Năm dimension](03_dim_courier_silver.ipynb) | `delivery_silver` | Lịch sử shipper SCD2 rồi đến vùng, AOI, ngày và giờ. |
+| [04b · ETA lúc nhận](04b_eta_safe.ipynb) | CSV để trình bày. Bronze khi chạy B đăng ký qua Prefect. | Mẫu theo thời điểm nhận, chia tập, dự đoán tính tay và điểm validation B + AOI + GPS. |
+| [04c · ETA còn lại](04c_eta_paper.ipynb) | Bảy cột của Bronze | Làm sạch quỹ đạo, cohort 1–120 phút và kết quả tái lập Protocol P. |
+| [04 · Fact và Spark LR/GBT](04_fact_and_ml_gold.ipynb) | Silver và năm dimension | Ghép fact, lọc cohort GPS/24 giờ/50 km và điểm riêng của baseline Spark. |
+| [05 · Serving](05_serving_layer.ipynb) | Fact, dự đoán Spark, ngưỡng đơn trễ và dimension | Bảng MySQL và số dòng đã đối soát. |
+
+File CSV của repo nằm ở `data/delivery_yt.csv`, được mount tại `/home/jovyan/data/delivery_yt.csv` trong Docker. Bronze ưu tiên `s3a://lakehouse/delivery_yt.csv`. Khi file đó thiếu, nó dùng bản đã mount. Notebook 01 in đường dẫn thực tế đã đọc.
+
+## Mở và chạy
+
+Dùng [hướng dẫn bật Docker](../readme.md#6-cài-đặt) cho các notebook ghi Delta hoặc MySQL. Lấy URL Jupyter rồi chạy các cell từ trên xuống.
 
 ~~~powershell
-docker compose up -d --build
-docker compose ps
 docker compose exec jupyter jupyter server list
 ~~~
 
-Mở URL có dạng http://127.0.0.1:8888/lab?token=... trên trình duyệt. Trong mỗi notebook, chạy cell từ trên xuống bằng Shift + Enter.
+Notebook cho xem đầu vào, điều kiện xử lý và bảng đầu ra của từng bước. Cả notebook và Prefect gọi các hàm trong `pipeline/steps.py`. Prefect gọi lại đúng hàm của task khi retry và ghi mã lần chạy để dashboard biết kết quả nào đã công bố. [Hàm xử lý](../pipeline/steps.py) · [Thứ tự task](../pipeline/flow.py)
 
-## Thứ tự chạy
-
-1. 00_data_audit.ipynb: audit và EDA toàn bộ CSV.
-2. 01_ingest_bronze.ipynb: ghi delivery_bronze.
-3. 02_transform_silver.ipynb: ghi delivery_silver và delivery_rejected.
-4. 03_dim_courier_silver.ipynb: tạo courier SCD2.
-5. 03b_star_dimensions.ipynb: tạo dimension region, AOI, date, hour.
-6. 04_fact_and_ml_gold.ipynb: tạo fact Gold và baseline cũ.
-7. 04b_eta_safe.ipynb: chạy bài toán phụ ETA-safe.
-8. 04c_eta_paper.ipynb: chạy Protocol P, bài toán ETA chính.
-9. 05_serving_layer.ipynb: ghi bảng serving sang MySQL.
-
-Chờ cell của notebook trước hoàn tất trước khi chạy notebook sau. Không chạy hai notebook ghi cùng một bảng cùng lúc.
-
-## Điều kiện và lỗi
-
-- 00 cần file data/delivery_yt.csv.
-- 01 cần MinIO và Lakehouse ở trạng thái healthy.
-- 02 trở đi cần bảng upstream đã tạo.
-- 04c có thể mất vài phút vì tạo mẫu và huấn luyện LightGBM.
-- PATH_NOT_FOUND nghĩa là bảng upstream chưa có hoặc notebook chạy sai thứ tự.
-- Prefect ghi trạng thái hoàn tất và mã lần chạy cho dashboard tại http://localhost:8501. Notebook gọi từng bước để kiểm tra riêng, nên hãy chạy ngoài thời gian Prefect đang ghi bảng và chạy flow đầy đủ để công bố lại dashboard.
-
-Nếu muốn chạy toàn bộ một lần:
+Chạy các cell ghi bảng khi Prefect đã dừng. Để công bố một lượt kết quả đầy đủ lên dashboard, chạy flow.
 
 ~~~powershell
 docker compose exec jupyter python -u /home/jovyan/pipeline/flow.py

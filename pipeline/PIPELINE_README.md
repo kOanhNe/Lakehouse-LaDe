@@ -1,7 +1,9 @@
 # Pipeline Prefect + Dashboard
 
 `flow.py` điều phối Bronze, Silver, courier SCD2, star dimensions, ETA-safe,
-Protocol P, fact/baseline và serving MySQL. `steps.py` chứa các bước thực thi.
+Protocol P, fact/baseline và serving MySQL. Mỗi task gọi một bước trong
+`steps.py`, nơi notebook cũng lấy hàm để trình bày cùng quy tắc xử lý.
+[Đầu vào, bước lọc và kết quả theo notebook](../notebooks/README.md)
 
 ## Chạy một lần
 

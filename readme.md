@@ -2,7 +2,7 @@
 
 Đây là đồ án xây dựng hệ thống Lakehouse cho dữ liệu giao hàng LaDe-D tại Yantai. Hệ thống đi từ dữ liệu CSV, audit chất lượng, ETL bằng Spark/Delta Lake, xây dựng kho dữ liệu star schema, huấn luyện các bài toán ETA, ghi bảng serving vào MySQL và hiển thị trên dashboard Streamlit.
 
-README này hướng dẫn từ lúc cài đặt đến lúc chạy pipeline, chạy từng notebook và kiểm tra kết quả.
+Mở hướng dẫn notebook để đi từ CSV qua từng bước lọc đến một dự đoán ETA có đối chiếu tính tay. [Bắt đầu từ notebook](notebooks/README.md)
 
 ## 1. Bài toán
 
@@ -273,35 +273,9 @@ Khi lỗi, xem bước cuối trong Prefect và chạy lại flow từ đầu. C
 
 ## 8. Chạy notebook đúng thứ tự
 
-Notebook chỉ là lớp trình bày gọi lại code trong pipeline/steps.py. Mở Jupyter:
+Hướng dẫn notebook có một bảng đường dẫn đầu vào, điều kiện lọc và kết quả của từng bước theo luồng Prefect. [Thứ tự chạy notebook](notebooks/README.md)
 
-~~~powershell
-docker compose exec jupyter jupyter server list
-~~~
-
-Mở URL có dạng http://127.0.0.1:8888/lab?token=... rồi chạy từng cell bằng Shift + Enter.
-
-Thứ tự bắt buộc:
-
-| Thứ tự | Notebook | Kết quả |
-|---:|---|---|
-| 0 | 00_data_audit.ipynb | EDA và reports/data |
-| 1 | 01_ingest_bronze.ipynb | delivery_bronze |
-| 2 | 02_transform_silver.ipynb | delivery_silver, delivery_rejected |
-| 3 | 03_dim_courier_silver.ipynb | courier SCD2 |
-| 3b | 03b_star_dimensions.ipynb | region/AOI/date/hour dimensions |
-| 4 | 04_fact_and_ml_gold.ipynb | fact Gold và baseline phụ |
-| 4b | 04b_eta_safe.ipynb | eta_safe_gold và metrics |
-| 4c | 04c_eta_paper.ipynb | Protocol P, SPEED, LightGBM |
-| 5 | 05_serving_layer.ipynb | MySQL serving |
-
-Chờ cell của notebook trước trả về kết quả rồi mới chạy notebook tiếp theo. Nếu báo PATH_NOT_FOUND, bảng upstream chưa được tạo hoặc notebook đang chạy sai thứ tự. Dùng notebook ghi bảng khi flow Prefect đã dừng. Sau đó chạy flow đầy đủ để công bố dữ liệu cho dashboard.
-
-Chạy một notebook bằng lệnh:
-
-~~~powershell
-docker compose exec jupyter jupyter nbconvert --to notebook --execute --ExecutePreprocessor.timeout=-1 --output 04c_eta_paper.ipynb /home/jovyan/work/04c_eta_paper.ipynb
-~~~
+Notebook 04b kiểm tra một đơn thật từ `data/delivery_yt.csv`. Chạy các cell để tính nhãn và đặc trưng, xem các nhánh cây LightGBM rồi đối chiếu phép cộng với dự đoán của máy. [Đối chiếu tính tay](notebooks/04b_eta_safe.ipynb)
 
 ## 9. Dashboard và kết quả
 

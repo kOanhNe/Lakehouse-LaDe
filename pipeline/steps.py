@@ -1,4 +1,4 @@
-"""Các bước xử lý Spark của pipeline (lấy từ notebook 01-05, gom lại để Prefect gọi)."""
+"""Các bước xử lý Spark dùng chung cho notebook và flow Prefect."""
 import os
 import sys
 from datetime import datetime
@@ -217,7 +217,16 @@ def build_fact(spark):
 
 
 def build_fact_and_train(spark, train_end="2022-10-01", late_threshold_min=None, *, run_id=None):
-    fact = build_fact(spark)
+    return train_spark_baseline(build_fact(spark), train_end, late_threshold_min, run_id=run_id)
+
+
+def spark_baseline_cohort(fact):
+    """Select the GPS, distance and duration cohort used by Spark LR/GBT."""
+    return fact.filter(F.col("eligible_ml_distance") & (F.col("delivery_minutes") <= 1440)
+                       & (F.col("distance_km") <= 50))
+
+
+def train_spark_baseline(fact, train_end="2022-10-01", late_threshold_min=None, *, run_id=None):
     cached = []
     try:
         return _train_baseline(fact, train_end, late_threshold_min, run_id, cached)
@@ -230,9 +239,7 @@ def _train_baseline(fact, train_end, late_threshold_min, run_id, cached):
     spark = fact.sparkSession
     n_silver = fact.count()
 
-    # Cohort ML: GPS nhận đơn hợp lệ, <= 24h, khoảng cách <= 50 km
-    ml = fact.filter(F.col("eligible_ml_distance") & (F.col("delivery_minutes") <= 1440)
-                     & (F.col("distance_km") <= 50))
+    ml = spark_baseline_cohort(fact)
     w = (Window.partitionBy("courier_id", "order_date").orderBy("accept_ts", "order_id")
          .rowsBetween(Window.unboundedPreceding, Window.currentRow))
     ml = (ml.withColumn("accept_hour", F.hour("accept_ts") + F.minute("accept_ts") / 60)
@@ -374,8 +381,7 @@ def build_eta_paper(spark, seeds=(42, 43, 44), *, run_id=None):
     """Protocol P: bài toán ETA của bài báo LaDe (truy vấn tại lúc giao xong, nhãn 0-120 phút)."""
     from src.eta import paper_protocol
 
-    raw = spark.read.format("delta").load(BRONZE).select(
-        "courier_id", "ds", "lat", "lng", "aoi_type", "accept_time", "delivery_time").toPandas()
+    raw = spark.read.format("delta").load(BRONZE).select(*paper_protocol.INPUT_COLUMNS).toPandas()
     metrics, stats, scored = paper_protocol.run(raw, seeds)
     experiment_id = run_id or uuid.uuid4().hex
     metrics.insert(0, "run_id", experiment_id)

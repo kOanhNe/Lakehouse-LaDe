@@ -35,6 +35,17 @@ def validation_rows(samples: pd.DataFrame, orders: pd.DataFrame) -> tuple[pd.Dat
     return samples.loc[train_mask], samples.loc[samples.split.eq("validation")]
 
 
+def fill_from_train_medians(train: pd.DataFrame, validation: pd.DataFrame,
+                            features: list[str]) -> tuple[pd.DataFrame, pd.DataFrame]:
+    columns = [*features, TARGET]
+    train_rows = train.loc[:, columns].copy()
+    validation_rows = validation.loc[:, columns].copy()
+    medians = train_rows[features].median()
+    train_rows[features] = train_rows[features].fillna(medians)
+    validation_rows[features] = validation_rows[features].fillna(medians)
+    return train_rows, validation_rows
+
+
 def validation_metrics(actual: np.ndarray, predicted: np.ndarray) -> dict[str, float]:
     error = np.abs(actual - np.maximum(predicted, 0))
     return {
@@ -74,11 +85,7 @@ def run(source: Path, output: Path, seeds: list[int] | None = None) -> None:
         "variant": "median_train", "seed": None, **sample_counts, **validation_metrics(actual, median),
     }]
     for variant, features in VARIANTS.items():
-        train_rows = train.loc[:, [*features, TARGET]].copy()
-        validation_inputs = validation.loc[:, [*features, TARGET]].copy()
-        medians = train_rows[features].median()
-        train_rows[features] = train_rows[features].fillna(medians)
-        validation_inputs[features] = validation_inputs[features].fillna(medians)
+        train_rows, validation_inputs = fill_from_train_medians(train, validation, features)
         for seed in seeds:
             model = fit_lightgbm(train_rows, validation_inputs, features, seed=seed)
             predicted = model.predict(validation_inputs[features])

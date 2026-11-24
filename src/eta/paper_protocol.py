@@ -12,6 +12,7 @@ import pandas as pd
 R = 6371008.8
 T = 12          # số bước truy vấn tối đa mỗi cửa sổ
 LABEL_MAX = 120  # nhãn hợp lệ: 0 < phút còn lại <= 120
+INPUT_COLUMNS = ["courier_id", "ds", "lat", "lng", "aoi_type", "accept_time", "delivery_time"]
 FEATURES = ["dis", "elapsed", "tmin", "ndone", "ntodo", "rank", "aoi", "spd"]
 KEY = ["courier_id", "ds"]
 
@@ -35,7 +36,7 @@ def _to_last(d):
 
 def clean(raw):
     """Lọc như preprocess_delivery.py. Trả về (df, thống kê, tốc độ shipper)."""
-    df = raw[["courier_id", "ds", "lat", "lng", "aoi_type", "accept_time", "delivery_time"]].copy()
+    df = raw[INPUT_COLUMNS].copy()
     df["courier_id"] = df.courier_id.astype(str)
     df["ds"] = df.ds.astype(str).str.zfill(4)
     for column in ("lat", "lng"):
