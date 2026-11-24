@@ -50,3 +50,43 @@ thực tế mất hơn ba giờ. Ba giờ và 10% là mốc minh họa cho cách
 ~~~bash
 python scripts/run_eta_accept_benchmark.py --holdout
 ~~~
+
+### Kết quả trên 25.345 đơn nhận từ 25/09 đến 31/10/2022
+
+Mỗi phương án đọc cùng một tập test trên CSV Yantai. Có 73.107 đơn để fit và
+24.629 đơn validation có nhãn trước khi bắt đầu test. Các hàng LightGBM là
+trung bình qua seed 42–44. [Kết quả theo seed](../reports/eta_accept_benchmark_holdout.csv)
+
+| Phương án | MAE (phút) | ACC@30 | ACC@60 | P90 sai số (phút) | Dự đoán sớm hơn thực tế trên 60 phút |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Trung vị train | 182,28 | 13,78% | 28,01% | 315,00 | 37,43% |
+| Trung vị theo vùng và khung giờ | 142,57 | 17,84% | 34,89% | 280,00 | 34,75% |
+| Protocol B | 118,66 | 24,75% | 45,84% | 233,92 | 27,64% |
+| B + AOI + GPS | 114,63 | 28,21% | 49,35% | 229,81 | 23,21% |
+
+B + AOI + GPS giảm MAE 4,03 phút so với B. Trên 100 đơn, khoảng 72 đơn
+lệch quá 30 phút và 23 đơn giao muộn hơn ETA trên một giờ. Khoảng dự đoán
+nhắm 80% phủ thực tế 76,56% với độ rộng trung vị 295,39 phút. Kết quả này
+chưa phù hợp để báo một giờ giao cụ thể cho khách.
+
+### Phạm vi thử nghiệm nội bộ
+
+Trong mô phỏng xếp hạng cả tập test, chọn 2.535 đơn có ETA dài nhất.
+Trong nhóm này, 96,90% đơn thực tế mất hơn ba giờ. Tỷ lệ của toàn tập là
+53,55%. Đối chiếu bổ sung với cách xếp 2.535 đơn theo trung vị vùng và
+khung giờ cho tỷ lệ 71,91%. Với hai cách, các ETA bằng nhau được xếp
+theo thời điểm nhận rồi đến mã đơn. Nhóm B + AOI + GPS bao phủ 18,10%
+tổng số đơn trên ba giờ, phù hợp để thử ưu tiên kiểm tra khi năng lực
+theo dõi có hạn. Kết quả này đo xếp hạng ngoại tuyến. Kiểm chứng vận
+hành cần ghi dự báo tại từng lần nhận đơn và so với kết quả giao sau đó.
+
+Repo hiện huấn luyện và chấm theo batch. Dashboard đọc metric đã ghi.
+Khi bỏ thời điểm giao và nhãn của đơn `2641862`, `build_eta_samples()`
+bỏ đơn đó khỏi bảng mẫu. Đường dự đoán lúc nhận cần dựng đặc trưng cho
+đơn còn mở và nạp lại mô hình cùng giá trị điền thiếu đã chốt. Phép đo
+trên Yantai chỉ dùng đơn có nhãn giao hàng từ năm 2022. [Builder mẫu](../src/eta/dataset.py) · [Bước batch](../pipeline/steps.py)
+
+Một hướng để cải thiện ETA vận hành là đo thời gian theo tuyến đường
+và thêm trạng thái hàng chờ đã quan sát. DeepETA của Uber dùng dữ liệu
+tuyến đường và giao thông thời gian thực rồi dùng ML hiệu chỉnh.
+[Thiết kế DeepETA](https://www.uber.com/us/en/blog/deepeta-how-uber-predicts-arrival-times/)

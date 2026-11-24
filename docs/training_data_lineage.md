@@ -124,7 +124,7 @@ cùng tập đánh giá. [Cấu hình dữ liệu](../config/prereg.yaml) · [Ph
 
 ### 3.4. Thử nghiệm thêm lịch sử AOI và GPS cho Protocol B
 
-Script xác nhận SHA-256 của CSV Yantai trước khi tạo tập mẫu. Cả ba biến thể dùng cùng mã đơn, mốc nhận và nhãn là số phút từ nhận đến giao. Có **73.107 đơn train** sau khi bỏ 18 đơn có nhãn từ ngày bắt đầu validation trở đi. Script chấm **24.647 đơn validation**. Tập **25.345 đơn test** dành để xác nhận sau khi chốt cấu hình.
+Script xác nhận SHA-256 của CSV Yantai trước khi tạo tập mẫu. Cả ba biến thể dùng cùng mã đơn, mốc nhận và nhãn là số phút từ nhận đến giao. Có **73.107 đơn train** sau khi bỏ 18 đơn có nhãn từ ngày bắt đầu validation trở đi. Chế độ mặc định chấm **24.647 đơn validation**. Tập **25.345 đơn test** được chấm riêng sau khi khóa cấu hình để kiểm tra khả năng dùng cho vận hành. [Thiết kế và kết quả test](analysis_limits.md#5-kiểm-tra-eta-lúc-nhận-đơn-cho-vận-hành)
 
 - `aoi_past_count` và `aoi_past_avg_min` dùng các đơn cùng `aoi_id` đã giao tới lúc nhận đơn đang xét. `dataset.py` chọn các cột thuộc role `completed` và tính thời lượng lịch sử từ hiệu hai timestamp.
 - `accept_to_stop_km` dùng GPS lúc nhận và tọa độ đích từ role `candidate`. GPS cần có tọa độ hợp lệ và `accept_gps_ts <= accept_ts`.
