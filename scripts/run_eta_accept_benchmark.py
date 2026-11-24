@@ -1,8 +1,9 @@
-"""Validate accept-time ETA features on the shared Protocol B query set."""
+"""Compare accept-time ETA on the shared Protocol B query set."""
 from __future__ import annotations
 
 import argparse
 import hashlib
+from math import ceil
 import sys
 from pathlib import Path
 
@@ -56,13 +57,9 @@ def validation_metrics(actual: np.ndarray, predicted: np.ndarray) -> dict[str, f
     }
 
 
-def run(source: Path, output: Path, seeds: list[int] | None = None) -> None:
-    if source.resolve() == output.resolve():
-        raise ValueError("Output path must differ from the source CSV")
+def load_benchmark_samples(source: Path) -> tuple[dict, pd.DataFrame, pd.DataFrame]:
     prereg = yaml.safe_load((ROOT / "config" / "prereg.yaml").read_text(encoding="utf-8"))
     config = prereg["data"]
-    if seeds is None:
-        seeds = prereg["model"]["seeds"]
     with source.open("rb") as csv_file:
         source_hash = hashlib.file_digest(csv_file, "sha256").hexdigest()
     if source_hash != config["sha256"]:
@@ -73,6 +70,23 @@ def run(source: Path, output: Path, seeds: list[int] | None = None) -> None:
     samples = build_eta_samples(
         events, "B", config["max_queries_per_courier_day"], config["query_seed"], include_aoi_gps=True,
     )
+    return prereg, orders, samples
+
+
+def write_report(rows: list[dict], output: Path) -> None:
+    report = pd.DataFrame(rows)
+    report["seed"] = report["seed"].astype("Int64")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    report.to_csv(output, index=False, float_format="%.8f")
+    print(report.round(2).to_string(index=False))
+
+
+def run(source: Path, output: Path, seeds: list[int] | None = None) -> None:
+    if source.resolve() == output.resolve():
+        raise ValueError("Output path must differ from the source CSV")
+    prereg, orders, samples = load_benchmark_samples(source)
+    if seeds is None:
+        seeds = prereg["model"]["seeds"]
     train, validation = validation_rows(samples, orders)
     sample_counts = {
         "train_rows": len(train),
@@ -93,20 +107,98 @@ def run(source: Path, output: Path, seeds: list[int] | None = None) -> None:
                 "variant": variant, "seed": seed, **sample_counts, **validation_metrics(actual, predicted),
             })
 
-    report = pd.DataFrame(results)
-    report["seed"] = report["seed"].astype("Int64")
-    output.parent.mkdir(parents=True, exist_ok=True)
-    report.to_csv(output, index=False, float_format="%.8f")
-    print(report.round(2).to_string(index=False))
+    write_report(results, output)
+
+
+def region_hour_median(train: pd.DataFrame, scored: pd.DataFrame) -> np.ndarray:
+    """Median by region and four-hour bucket, with a pooled train fallback."""
+    group = ["candidate_region_id", "hour_bucket"]
+    train_groups = train.assign(hour_bucket=train.accept_hour.floordiv(4))
+    stats = train_groups.groupby(group)[TARGET].agg(["median", "size"])
+    medians = stats.loc[stats["size"].ge(30), "median"].rename("region_hour_median")
+    scored_groups = scored.assign(hour_bucket=scored.accept_hour.floordiv(4))
+    return scored_groups.join(medians, on=group)["region_hour_median"].fillna(train[TARGET].median()).to_numpy()
+
+
+def holdout_metrics(actual: np.ndarray, predicted: np.ndarray) -> dict[str, float]:
+    residual = actual - predicted
+    metrics = validation_metrics(actual, predicted)
+    metrics["acc60_pct"] = 100 * np.mean(np.abs(residual) <= 60)
+    metrics["underestimate_gt60_pct"] = 100 * np.mean(residual > 60)
+    return metrics
+
+
+def candidate_metrics(actual: np.ndarray, predicted: np.ndarray,
+                      validation_residual: np.ndarray) -> dict[str, float]:
+    lower_offset, upper_offset = np.quantile(validation_residual, [0.10, 0.90])
+    lower = np.maximum(0, predicted + lower_offset)
+    upper = np.maximum(0, predicted + upper_offset)
+
+    slow = actual > 180
+    flagged = np.argsort(-predicted, kind="stable")[:ceil(0.10 * len(actual))]
+    return {
+        "interval_coverage_pct": 100 * np.mean((actual >= lower) & (actual <= upper)),
+        "interval_median_width_min": np.median(upper - lower),
+        "over_180_prevalence_pct": 100 * np.mean(slow),
+        "flagged_rows": len(flagged),
+        "flagged_over_180_pct": 100 * np.mean(slow[flagged]),
+        "over_180_recall_pct": 100 * np.sum(slow[flagged]) / max(1, np.sum(slow)),
+    }
+
+
+def run_holdout(source: Path, output: Path) -> None:
+    if source.resolve() == output.resolve():
+        raise ValueError("Output path must differ from the source CSV")
+    prereg, orders, samples = load_benchmark_samples(source)
+    train, validation = validation_rows(samples, orders)
+    test_start = time_boundaries(samples, "query_ts").validation_end
+    validation = validation.loc[validation.order_id.map(orders.delivery_ts).lt(test_start)]
+    test = samples.loc[samples.split.eq("test")].sort_values(["query_ts", "order_id"])
+    sample_counts = {
+        "train_rows": len(train), "validation_rows": len(validation), "test_rows": len(test),
+    }
+    print(f"Fit/validation/test rows {sample_counts}, holdout from {test_start.date()}", flush=True)
+    actual = test[TARGET].to_numpy()
+    results = []
+    for variant, predicted in (
+        ("median_train", np.full(len(test), train[TARGET].median())),
+        ("median_region_hour", region_hour_median(train, test)),
+    ):
+        results.append({"variant": variant, "seed": None, **sample_counts, **holdout_metrics(actual, predicted)})
+
+    for variant in ("protocol_b", "protocol_b_aoi_gps"):
+        features = VARIANTS[variant]
+        train_inputs, validation_inputs = fill_from_train_medians(train, validation, features)
+        test_inputs = test[features].fillna(train[features].median())
+        for seed in prereg["model"]["seeds"]:
+            model = fit_lightgbm(train_inputs, validation_inputs, features, seed=seed)
+            predicted = np.maximum(model.predict(test_inputs), 0)
+            row = {"variant": variant, "seed": seed, **sample_counts, **holdout_metrics(actual, predicted)}
+            if variant == "protocol_b_aoi_gps":
+                validation_prediction = np.maximum(model.predict(validation_inputs[features]), 0)
+                residual = validation_inputs[TARGET].to_numpy() - validation_prediction
+                row.update(candidate_metrics(actual, predicted, residual))
+            results.append(row)
+            print(f"Scored {variant}, seed {seed}", flush=True)
+
+    write_report(results, output)
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source", type=Path, default=ROOT / "data" / "delivery_yt.csv")
-    parser.add_argument("--output", type=Path, default=ROOT / "reports" / "eta_accept_benchmark_validation.csv")
+    parser.add_argument("--output", type=Path)
     parser.add_argument("--seeds", "--seed", type=int, nargs="+", help="Model seeds from prereg.yaml by default")
+    parser.add_argument("--holdout", action="store_true", help="Evaluate the frozen validation-selected candidate")
     args = parser.parse_args()
-    run(args.source, args.output, args.seeds)
+    if args.holdout:
+        if args.seeds is not None:
+            parser.error("--holdout uses the frozen seeds from prereg.yaml")
+        output = args.output or ROOT / "reports" / "eta_accept_benchmark_holdout.csv"
+        run_holdout(args.source, output)
+    else:
+        output = args.output or ROOT / "reports" / "eta_accept_benchmark_validation.csv"
+        run(args.source, output, args.seeds)
 
 
 if __name__ == "__main__":

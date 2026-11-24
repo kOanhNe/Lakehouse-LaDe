@@ -27,3 +27,26 @@ Chỉ 3/205 shipper (1,5%) đổi khu vực chính, với 21 lần đổi; nếu
 - Spark LR/GBT là baseline thời lượng giao hàng từ lúc nhận đơn, đánh giá trên cohort riêng có GPS hợp lệ, khoảng cách tối đa 50 km và thời lượng tối đa 24 giờ.
 
 MAE khoảng 20,7 phút mô tả LightGBM trên tập test của Protocol P. Mỗi phép xếp hạng dùng các mô hình có cùng thời điểm truy vấn, nhãn và tập đánh giá. Xem [bảng vai trò trong README](../readme.md#1-bài-toán).
+
+## 5. Kiểm tra ETA lúc nhận đơn cho vận hành
+
+Chọn B + AOI + GPS dựa trên validation của benchmark và khóa cách chấm tại tag
+`eta-accept-holdout-v1`. Các phương án cùng dự đoán số phút từ nhận đến giao
+trên các đơn test của Protocol B. CSV Yantai và quy tắc chọn truy vấn theo
+ngày lấy từ `config/prereg.yaml`. So với trung vị train, trung vị theo vùng
+và khung bốn giờ, và Protocol B gốc. Trung vị theo nhóm dùng tối thiểu 30 đơn
+train, rồi lùi về trung vị toàn train với nhóm ít dữ liệu.
+
+Chỉ dùng nhãn train có trước validation. Chỉ dùng nhãn validation có trước
+ngày bắt đầu test để dừng sớm và lấy sai số hiệu chỉnh. Chạy seed 42–44.
+Chấm MAE, P90 sai số tuyệt đối, ACC@30, ACC@60 và tỷ lệ dự đoán sớm hơn
+thực tế trên 60 phút. Giữ toàn bộ đơn trong tập test đã đăng ký.
+
+Với B + AOI + GPS, thử khoảng dự đoán từ phân vị 10% và 90% của sai số
+có dấu trên validation. Đo tỷ lệ đơn test lọt khoảng cùng độ rộng trung vị.
+Để thử ưu tiên kiểm tra đơn lâu, chọn 10% đơn có ETA dài nhất và đếm số đơn
+thực tế mất hơn ba giờ. Ba giờ và 10% là mốc minh họa cho cách dùng nội bộ.
+
+~~~bash
+python scripts/run_eta_accept_benchmark.py --holdout
+~~~
