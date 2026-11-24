@@ -60,7 +60,7 @@ Notebook **00** gọi `scripts/profile_delivery.py` trên CSV để thống kê 
 | **03/03b · Dimension** | `delivery_silver` | Dựng lịch sử khu vực của shipper và các bảng tra cứu khu, AOI, ngày, giờ. |
 | **04 · Gold fact** | Silver và năm bảng dimension | Gắn khóa shipper có hiệu lực tại ngày nhận, cùng khóa vùng, AOI, ngày nhận, ngày giao và giờ nhận. `fact_delivery_task_gold` giữ **206.062 dòng**, một dòng mỗi đơn Silver. |
 
-Silver gắn cờ GPS, khoảng cách quá 50 km và thời lượng quá 24 giờ. Những đơn có timestamp hợp lệ và thời lượng dương vẫn được giữ trong Silver và fact. Bộ lọc **24 giờ và 50 km** được áp dụng khi dựng tập học cho Spark LR/GBT. Các bảng Delta nằm dưới `s3a://lakehouse/warehouse/`. [Code các bước ETL và huấn luyện](../pipeline/steps.py)
+Silver gắn cờ GPS, khoảng cách quá 50 km và thời lượng quá 24 giờ. Những đơn có timestamp hợp lệ và thời lượng dương vẫn được giữ trong Silver và fact. Bộ lọc **24 giờ và 50 km** được áp dụng khi dựng tập học cho Spark LR/GBT. Các bảng Delta nằm dưới `s3a://lakehouse/warehouse/`. [Code lọc Silver](../notebooks/02_transform_silver.ipynb) · [Code dựng fact và tập Spark](../notebooks/04_fact_and_ml_gold.ipynb)
 
 ### Năm bảng dimension được dựng thế nào
 

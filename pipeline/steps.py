@@ -1,3 +1,8 @@
+# Generated from notebook code cells tagged pipeline-step.
+# Run python scripts/check_project.py --sync-steps after editing those cells.
+
+
+# notebooks/01_ingest_bronze.ipynb
 """Các bước xử lý Spark dùng chung cho notebook và flow Prefect."""
 import os
 import sys
@@ -44,38 +49,6 @@ def _exists(spark, path):
     return p.getFileSystem(spark._jsc.hadoopConfiguration()).exists(p)
 
 
-def _jdbc():
-    return {
-        "url": os.getenv("MYSQL_JDBC_URL",
-                         "jdbc:mysql://mysql:3306/delivery_source?allowPublicKeyRetrieval=true&useSSL=false"),
-        "driver": "com.mysql.cj.jdbc.Driver",
-        "user": os.getenv("MYSQL_USER", "delivery"),
-        "password": os.getenv("MYSQL_PASSWORD", "delivery"),
-    }
-
-
-def write_mysql(df, table, *, run_id=None):
-    if run_id is not None:
-        df = df.withColumn("pipeline_run_id", F.lit(run_id))
-    expected = df.count()
-    if not expected:
-        raise ValueError(f"Bảng {table} rỗng")
-    options = {**_jdbc(), "dbtable": table}
-    df.coalesce(1).write.format("jdbc").options(**options).mode("overwrite").save()
-    written = df.sparkSession.read.format("jdbc").options(**options).load()
-    if run_id is not None:
-        result = written.agg(F.count("*").alias("total"),
-                             F.count(F.when(F.col("pipeline_run_id") == run_id, 1)).alias("matched")).first()
-        if result.total != result.matched:
-            raise ValueError(f"MySQL {table}: dữ liệu thuộc nhiều lần chạy")
-        actual = result.total
-    else:
-        actual = written.count()
-    if actual != expected:
-        raise ValueError(f"MySQL {table}: đã đọc lại {actual}, cần {expected} dòng")
-    return actual
-
-
 def read_bronze_csv(spark, source):
     from src.eta.dataset import SOURCE_COLUMNS
 
@@ -96,20 +69,6 @@ def reconcile_order_keys(source, output, label):
         raise ValueError(f"{label}: khóa order_id thiếu, dư hoặc trùng")
 
 
-def reconcile_silver(bronze, silver, rejected):
-    reconcile_order_keys(bronze, silver.select("order_id").unionByName(rejected.select("order_id")),
-                         "Bronze → Silver/Rejected")
-    valid_timestamp = F.col("accept_ts").isNotNull() & F.col("delivery_ts").isNotNull()
-    eligible = F.coalesce(valid_timestamp & (F.col("delivery_ts") > F.col("accept_ts")), F.lit(False))
-    expected_reason = F.when(~valid_timestamp, "invalid_timestamp").otherwise("non_positive_duration")
-    if silver.filter(~eligible).limit(1).count():
-        raise ValueError("Silver chứa dòng có timestamp lỗi hoặc thời lượng không dương")
-    if rejected.filter(eligible | ~F.col("reject_reason").eqNullSafe(expected_reason)).limit(1).count():
-        raise ValueError("Rejected chứa dòng hợp lệ hoặc sai lý do từ chối")
-    return {"bronze_rows": bronze.count(), "silver_rows": silver.count(), "rejected_rows": rejected.count()}
-
-
-# ---------------------------------------------------------------- 1. Bronze
 def ingest_bronze(spark):
     src = os.getenv("SOURCE_PATH", "s3a://lakehouse/delivery_yt.csv")
     if not _exists(spark, src):
@@ -125,7 +84,7 @@ def ingest_bronze(spark):
     return {"source": src, "bronze_rows": persisted.count()}
 
 
-# ---------------------------------------------------------------- 2. Silver
+# notebooks/02_transform_silver.ipynb
 def split_silver(df):
     d = (df.withColumn("accept_ts", parse_timestamp("accept_time"))
            .withColumn("delivery_ts", parse_timestamp("delivery_time")))
@@ -160,6 +119,19 @@ def split_silver(df):
     return d.filter(F.col("eligible_duration")), rejected
 
 
+def reconcile_silver(bronze, silver, rejected):
+    reconcile_order_keys(bronze, silver.select("order_id").unionByName(rejected.select("order_id")),
+                         "Bronze → Silver/Rejected")
+    valid_timestamp = F.col("accept_ts").isNotNull() & F.col("delivery_ts").isNotNull()
+    eligible = F.coalesce(valid_timestamp & (F.col("delivery_ts") > F.col("accept_ts")), F.lit(False))
+    expected_reason = F.when(~valid_timestamp, "invalid_timestamp").otherwise("non_positive_duration")
+    if silver.filter(~eligible).limit(1).count():
+        raise ValueError("Silver chứa dòng có timestamp lỗi hoặc thời lượng không dương")
+    if rejected.filter(eligible | ~F.col("reject_reason").eqNullSafe(expected_reason)).limit(1).count():
+        raise ValueError("Rejected chứa dòng hợp lệ hoặc sai lý do từ chối")
+    return {"bronze_rows": bronze.count(), "silver_rows": silver.count(), "rejected_rows": rejected.count()}
+
+
 def transform_silver(spark):
     df = spark.read.format("delta").load(BRONZE)
     require_unique_orders(df)
@@ -170,7 +142,7 @@ def transform_silver(spark):
                             spark.read.format("delta").load(REJECTED))
 
 
-# ------------------------------------------------------- 3. dim_courier SCD2
+# notebooks/03_dim_courier_silver.ipynb
 def build_dim_courier(spark):
     silver = spark.read.format("delta").load(SILVER)
     h = courier_history(silver)
@@ -192,19 +164,7 @@ def build_star_dimensions(spark):
     return out
 
 
-# --------------------------------------------------------- 4. Fact + ML
-def _metrics(df, label, pred_col):
-    r = df.select(
-        F.count("*").alias("n"),
-        F.avg(F.abs(F.col(pred_col) - F.col(label))).alias("mae"),
-        F.sqrt(F.avg((F.col(pred_col) - F.col(label)) ** 2)).alias("rmse"),
-        F.sum((F.col(pred_col) - F.col(label)) ** 2).alias("sse"),
-        F.sum((F.col(label) - F.lit(df.agg(F.avg(label)).first()[0])) ** 2).alias("sst"),
-    ).first()
-    r2 = float(1 - r["sse"] / r["sst"]) if r["sst"] else None
-    return r["n"], float(r["mae"]), float(r["rmse"]), r2
-
-
+# notebooks/04_fact_and_ml_gold.ipynb
 def build_fact(spark):
     silver = spark.read.format("delta").load(SILVER)
     dim = spark.read.format("delta").load(DIM)
@@ -216,23 +176,22 @@ def build_fact(spark):
     return fact
 
 
-def build_fact_and_train(spark, train_end="2022-10-01", late_threshold_min=None, *, run_id=None):
-    return train_spark_baseline(build_fact(spark), train_end, late_threshold_min, run_id=run_id)
-
-
 def spark_baseline_cohort(fact):
     """Select the GPS, distance and duration cohort used by Spark LR/GBT."""
     return fact.filter(F.col("eligible_ml_distance") & (F.col("delivery_minutes") <= 1440)
                        & (F.col("distance_km") <= 50))
 
 
-def train_spark_baseline(fact, train_end="2022-10-01", late_threshold_min=None, *, run_id=None):
-    cached = []
-    try:
-        return _train_baseline(fact, train_end, late_threshold_min, run_id, cached)
-    finally:
-        for frame in reversed(cached):
-            frame.unpersist()
+def _metrics(df, label, pred_col):
+    r = df.select(
+        F.count("*").alias("n"),
+        F.avg(F.abs(F.col(pred_col) - F.col(label))).alias("mae"),
+        F.sqrt(F.avg((F.col(pred_col) - F.col(label)) ** 2)).alias("rmse"),
+        F.sum((F.col(pred_col) - F.col(label)) ** 2).alias("sse"),
+        F.sum((F.col(label) - F.lit(df.agg(F.avg(label)).first()[0])) ** 2).alias("sst"),
+    ).first()
+    r2 = float(1 - r["sse"] / r["sst"]) if r["sst"] else None
+    return r["n"], float(r["mae"]), float(r["rmse"]), r2
 
 
 def _train_baseline(fact, train_end, late_threshold_min, run_id, cached):
@@ -330,7 +289,20 @@ def _train_baseline(fact, train_end, late_threshold_min, run_id, cached):
     return out
 
 
-# --------------------------------------------------------- 4b. Leakage-safe ETA
+def train_spark_baseline(fact, train_end="2022-10-01", late_threshold_min=None, *, run_id=None):
+    cached = []
+    try:
+        return _train_baseline(fact, train_end, late_threshold_min, run_id, cached)
+    finally:
+        for frame in reversed(cached):
+            frame.unpersist()
+
+
+def build_fact_and_train(spark, train_end="2022-10-01", late_threshold_min=None, *, run_id=None):
+    return train_spark_baseline(build_fact(spark), train_end, late_threshold_min, run_id=run_id)
+
+
+# notebooks/04b_eta_safe.ipynb
 def build_eta_safe(spark, seeds=(42, 43, 44), *, run_id=None):
     """Run the registered pandas/LightGBM ETA protocol and publish Delta outputs.
 
@@ -377,6 +349,7 @@ def build_eta_safe(spark, seeds=(42, 43, 44), *, run_id=None):
             "test_rmse": next(row[5] for row in metrics if row[2] == "test" and row[6] == primary_seed), "seeds": list(seeds)}
 
 
+# notebooks/04c_eta_paper.ipynb
 def build_eta_paper(spark, seeds=(42, 43, 44), *, run_id=None):
     """Protocol P: bài toán ETA của bài báo LaDe (truy vấn tại lúc giao xong, nhãn 0-120 phút)."""
     from src.eta import paper_protocol
@@ -394,7 +367,39 @@ def build_eta_paper(spark, seeds=(42, 43, 44), *, run_id=None):
     return {"run_id": experiment_id, **stats}
 
 
-# ------------------------------------------------------------ 5. Serving
+# notebooks/05_serving_layer.ipynb
+def _jdbc():
+    return {
+        "url": os.getenv("MYSQL_JDBC_URL",
+                         "jdbc:mysql://mysql:3306/delivery_source?allowPublicKeyRetrieval=true&useSSL=false"),
+        "driver": "com.mysql.cj.jdbc.Driver",
+        "user": os.getenv("MYSQL_USER", "delivery"),
+        "password": os.getenv("MYSQL_PASSWORD", "delivery"),
+    }
+
+
+def write_mysql(df, table, *, run_id=None):
+    if run_id is not None:
+        df = df.withColumn("pipeline_run_id", F.lit(run_id))
+    expected = df.count()
+    if not expected:
+        raise ValueError(f"Bảng {table} rỗng")
+    options = {**_jdbc(), "dbtable": table}
+    df.coalesce(1).write.format("jdbc").options(**options).mode("overwrite").save()
+    written = df.sparkSession.read.format("jdbc").options(**options).load()
+    if run_id is not None:
+        result = written.agg(F.count("*").alias("total"),
+                             F.count(F.when(F.col("pipeline_run_id") == run_id, 1)).alias("matched")).first()
+        if result.total != result.matched:
+            raise ValueError(f"MySQL {table}: dữ liệu thuộc nhiều lần chạy")
+        actual = result.total
+    else:
+        actual = written.count()
+    if actual != expected:
+        raise ValueError(f"MySQL {table}: đã đọc lại {actual}, cần {expected} dòng")
+    return actual
+
+
 def serving_frames(fact, pred, thr):
     late = (F.col("delivery_minutes") > F.lit(thr)).cast("double")
 

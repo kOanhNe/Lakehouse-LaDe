@@ -1,7 +1,7 @@
 # Trạng thái triển khai
 
 Đợt ổn định này dựa trên commit `488db2e`. Prefect chạy tám bước
-từ Bronze đến MySQL. Notebook hiện tại gọi chung các hàm trong `pipeline/steps.py`.
+từ Bronze đến MySQL. Thân hàm nằm trong các notebook và được xuất ra `pipeline/steps.py` để Prefect gọi. [Notebook nguồn và lệnh đồng bộ](../notebooks/README.md#sửa-logic-rồi-đồng-bộ-prefect)
 
 ## Hợp đồng dữ liệu
 

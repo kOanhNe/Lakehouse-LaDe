@@ -1,9 +1,11 @@
 """Offline source/data checks; run with Python 3.10+ from the project root."""
+import argparse
 import ast
 import csv
 import json
 import math
 import tarfile
+import tempfile
 import zipfile
 from collections import Counter
 from datetime import datetime
@@ -11,9 +13,76 @@ from pathlib import Path
 from xml.etree import ElementTree
 
 ROOT = Path(__file__).resolve().parents[1]
+NOTEBOOK_DIR = ROOT / "notebooks" if (ROOT / "notebooks").is_dir() else ROOT
+PIPELINE_DIR = ROOT / "pipeline" if (ROOT / "pipeline").is_dir() else ROOT.parent / "pipeline"
+STEPS_PATH = PIPELINE_DIR / "steps.py"
+PIPELINE_NOTEBOOKS = (
+    "01_ingest_bronze.ipynb",
+    "02_transform_silver.ipynb",
+    "03_dim_courier_silver.ipynb",
+    "04_fact_and_ml_gold.ipynb",
+    "04b_eta_safe.ipynb",
+    "04c_eta_paper.ipynb",
+    "05_serving_layer.ipynb",
+)
+
+
+def render_notebook_steps() -> str:
+    blocks = [
+        "# Generated from notebook code cells tagged pipeline-step.\n"
+        "# Run python scripts/check_project.py --sync-steps after editing those cells."
+    ]
+    for name in PIPELINE_NOTEBOOKS:
+        notebook = json.loads((NOTEBOOK_DIR / name).read_text(encoding="utf-8"))
+        sources = [
+            "".join(cell["source"]).rstrip()
+            for cell in notebook["cells"]
+            if cell["cell_type"] == "code" and "pipeline-step" in cell.get("metadata", {}).get("tags", [])
+        ]
+        if not sources or any(not source.strip() for source in sources):
+            raise ValueError(f"Missing pipeline-step code in {name}")
+        blocks.append(f"# notebooks/{name}\n" + "\n\n\n".join(sources))
+    generated = "\n\n\n".join(blocks) + "\n"
+    compile(generated, str(STEPS_PATH), "exec")
+    return generated
+
+
+def check_notebook_steps() -> None:
+    if not STEPS_PATH.is_file() or STEPS_PATH.read_text(encoding="utf-8") != render_notebook_steps():
+        raise ValueError(
+            "pipeline/steps.py differs from the notebooks. "
+            "Run python scripts/check_project.py --sync-steps"
+        )
+
+
+def sync_notebook_steps() -> None:
+    source = render_notebook_steps()
+    if STEPS_PATH.is_file() and STEPS_PATH.read_text(encoding="utf-8") == source:
+        return
+    handle = tempfile.NamedTemporaryFile(
+        mode="w", encoding="utf-8", newline="\n", dir=PIPELINE_DIR,
+        prefix="steps-", suffix=".tmp", delete=False,
+    )
+    temporary = Path(handle.name)
+    try:
+        with handle:
+            handle.write(source)
+        mode = STEPS_PATH.stat().st_mode & 0o777 if STEPS_PATH.exists() else 0o644
+        temporary.chmod(mode)
+        temporary.replace(STEPS_PATH)
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--sync-steps", action="store_true", help="Regenerate pipeline/steps.py from the notebooks")
+    args = parser.parse_args()
+    if args.sync_steps:
+        sync_notebook_steps()
+        print("Notebook steps are synced to pipeline/steps.py")
+        return
+    check_notebook_steps()
     cells = 0
     for path in sorted((ROOT / 'notebooks').glob('*.ipynb')):
         notebook = json.loads(path.read_text(encoding='utf-8'))

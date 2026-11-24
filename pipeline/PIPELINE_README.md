@@ -1,9 +1,10 @@
 # Pipeline Prefect + Dashboard
 
 `flow.py` điều phối Bronze, Silver, courier SCD2, star dimensions, ETA-safe,
-Protocol P, fact/baseline và serving MySQL. Mỗi task gọi một bước trong
-`steps.py`, nơi notebook cũng lấy hàm để trình bày cùng quy tắc xử lý.
-[Đầu vào, bước lọc và kết quả theo notebook](../notebooks/README.md)
+Protocol P, fact/baseline và serving MySQL. Mỗi task gọi một hàm trong
+`steps.py` được xuất từ các cell `pipeline-step`. Sửa logic ở notebook rồi
+chạy lệnh đồng bộ trước khi chạy flow mới.
+[Notebook nguồn và lệnh đồng bộ](../notebooks/README.md#sửa-logic-rồi-đồng-bộ-prefect)
 
 ## Chạy một lần
 

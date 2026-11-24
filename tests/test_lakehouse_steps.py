@@ -3,6 +3,12 @@ from datetime import date, datetime
 import pytest
 
 
+def test_pipeline_steps_match_notebooks():
+    from scripts.check_project import check_notebook_steps
+
+    check_notebook_steps()
+
+
 def test_bronze_contract_and_unique_keys(local_spark, tmp_path, write_lade_csv):
     from steps import read_bronze_csv, require_unique_orders
 
