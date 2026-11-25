@@ -39,7 +39,7 @@ trạng thái khi bấm làm mới.
 
 ## Kiểm thử
 
-Lệnh và yêu cầu môi trường nằm trong [README](../readme.md#10-kiểm-tra-và-test).
+Lệnh và yêu cầu môi trường nằm trong [README](../README.md#10-kiểm-tra-và-test).
 Chạy marker `not integration` trước. Bộ unit kiểm tra hợp đồng nguồn, phân tách
 Silver/Rejected, SCD2, các khóa dimension, fact, tổng hợp serving, trạng thái
 dashboard và các phụ thuộc tương lai của Protocol P.
@@ -54,27 +54,31 @@ nhận lần lỗi bị ẩn và chạy lại để đối chiếu grain, khóa 
 Một kiểm thử khác dùng kết nối MySQL thật để kiểm tra tranh chấp khóa, nhận biết
 mất kết nối và ghi nhận lần chạy bị gián đoạn.
 
-Các kết quả sau ghi nhận đợt kiểm thử ổn định của pipeline.
+Kết quả kiểm thử sau khi sắp xếp lại thư mục được ghi dưới đây.
 
 | Kiểm tra | Kết quả |
 |---|---|
-| Unit trong container Jupyter, `pytest -m "not integration" -q` | 28 đạt, 2 integration được loại theo marker. |
-| Integration trong Docker với các dịch vụ thật | 2 đạt. Đã chạy thành công, tiêm lỗi khi serving, chạy khôi phục và kiểm tra mất khóa MySQL. |
-| Đối soát chỉ đọc với Yantai | SHA-256 của CSV trên MinIO khớp bản đăng ký. Delta hiện có 206.431 Bronze, 206.062 Silver, 369 Rejected và 206.062 fact. Tổng đơn serving MySQL khớp Silver. |
-| Cấu hình Compose và `config/schema.yaml` | Hợp lệ. |
+| Unit trong container Jupyter, `pytest -m "not integration" -q` | 38 đạt, gồm 6 kiểm thử Spark. |
+| Integration trong Docker với các dịch vụ thật | Lần đầu Docker ngắt vì ổ đĩa máy kiểm thử hết chỗ. Lần chạy lại đã khởi động các dịch vụ và vào flow Prefect, sau đó dừng khi dung lượng tiếp tục xuống thấp. Hai kiểm thử chưa hoàn tất trên cấu trúc mới. |
+| Cấu hình Compose và `config/schema.yaml` | Hợp lệ. Build được các image Lakehouse, Jupyter, Prefect và dashboard. |
+
+Ở đợt ổn định trước khi chuyển đường dẫn, hai kiểm thử integration đã đạt. Đối
+soát chỉ đọc khi đó xác nhận SHA-256 của CSV trên MinIO khớp bản đăng ký. Delta
+có 206.431 Bronze, 206.062 Silver, 369 Rejected và 206.062 fact. Tổng đơn
+serving MySQL khớp Silver.
 
 ## Kết quả ETA
 
 Giữ nguyên thuật toán, seed, cách chia và các kết quả nghiên cứu đã lưu.
-[Audit leakage](leak_inventory.md#audit-protocol-p) ghi rõ các phụ thuộc của
+[Audit leakage](eta/leak_inventory.md#audit-protocol-p) ghi rõ các phụ thuộc của
 `spd`, `ntodo`, `rank`, quỹ đạo đã làm sạch và cách chọn cửa sổ. Hai phép thử
 phản thực tế kiểm tra sự phụ thuộc của đặc trưng. Metric hiện tại mô tả kết quả
 tái lập ngoại tuyến trên cohort của Protocol P.
 
 Protocol B đánh giá ETA tại lúc nhận đơn với kiểm soát leakage theo contract.
 Spark LR/GBT là baseline thời lượng giao hàng trên cohort riêng. Dashboard có
-tab cho từng bài toán. Xem [phạm vi so sánh MAE](analysis_limits.md#4-phạm-vi-so-sánh-kết-quả-eta).
+tab cho từng bài toán. Xem [phạm vi so sánh MAE](eta/analysis_limits.md#4-phạm-vi-so-sánh-kết-quả-eta).
 
 Script benchmark chấm baseline median và ba bộ đặc trưng Protocol B trên cùng
 73.107 đơn train và 24.647 đơn validation. Các mô hình LightGBM dùng seed
-42–44. Báo cáo CSV ghi chỉ số theo từng seed. [Nguồn dữ liệu và cách chạy](training_data_lineage.md#34-thử-nghiệm-thêm-lịch-sử-aoi-và-gps-cho-protocol-b)
+42–44. Báo cáo CSV ghi chỉ số theo từng seed. [Nguồn dữ liệu và cách chạy](eta/training_data_lineage.md#34-thử-nghiệm-thêm-lịch-sử-aoi-và-gps-cho-protocol-b)

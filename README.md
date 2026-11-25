@@ -4,6 +4,23 @@
 
 Mở hướng dẫn notebook để đi từ CSV qua từng bước lọc đến một dự đoán ETA có đối chiếu tính tay. [Bắt đầu từ notebook](notebooks/README.md)
 
+## Cấu trúc dự án
+
+~~~text
+.
+├── config/                     # schema và cấu hình protocol
+├── data/                       # CSV Yantai
+├── docker/                     # Dockerfile, hadoop-conf và JAR
+├── docs/                       # tài liệu hệ thống và đánh giá ETA
+├── notebooks/                  # code xử lý theo thứ tự trình bày
+├── pipeline/                   # flow Prefect và trạng thái lần chạy
+├── dashboard/                  # dashboard Streamlit
+├── reports/{data,eta,scd2}/    # kết quả kiểm kê và thí nghiệm
+├── scripts/{checks,experiments}/
+├── src/{eta,lakehouse}/         # module Python dùng chung
+└── tests/
+~~~
+
 ## 1. Bài toán
 
 Mỗi dòng trong file dữ liệu tương ứng với một order_id. Câu hỏi chính là:
@@ -18,11 +35,11 @@ target_remaining_minutes = delivery_ts - query_ts
 
 | Bài toán | Vai trò | Cách diễn giải |
 |---|---|---|
-| Protocol P | ETA chính, tái lập LaDe | Tại lúc shipper vừa giao xong một đơn, dự đoán thời gian còn lại của các đơn đang cầm. Đánh giá ngoại tuyến trên cohort nhãn 1–120 phút, với các giới hạn leakage đã công bố trong [audit Protocol P](docs/leak_inventory.md#audit-protocol-p). |
+| Protocol P | ETA chính, tái lập LaDe | Tại lúc shipper vừa giao xong một đơn, dự đoán thời gian còn lại của các đơn đang cầm. Đánh giá ngoại tuyến trên cohort nhãn 1–120 phút, với các giới hạn leakage đã công bố trong [audit Protocol P](docs/eta/leak_inventory.md#audit-protocol-p). |
 | Protocol B (ETA-safe) | Bài toán phụ tại lúc nhận đơn | Dự đoán thời gian giao ngay khi nhận, với kiểm soát leakage theo contract. So với A-lite trên cùng tập truy vấn để đo ảnh hưởng của leakage. |
 | Spark LR/GBT | Baseline thời lượng giao hàng | Dự đoán `delivery_minutes` từ lúc nhận đơn trên cohort Spark có GPS hợp lệ, khoảng cách tối đa 50 km và thời lượng tối đa 24 giờ. Đọc MAE trong cohort của baseline. |
 
-MAE khoảng **20,7 phút** của LightGBM thuộc Protocol P trên Yantai, trung bình qua ba seed. Chỉ xếp hạng các mô hình trong cùng bài toán và cùng tập đánh giá. Protocol B và Spark LR/GBT truy vấn lúc nhận đơn, còn Protocol P truy vấn sau một lần giao xong và dùng tập đánh giá riêng. [Metric Protocol P đã lưu](reports/eta_paper_metrics.csv)
+MAE khoảng **20,7 phút** của LightGBM thuộc Protocol P trên Yantai, trung bình qua ba seed. Chỉ xếp hạng các mô hình trong cùng bài toán và cùng tập đánh giá. Protocol B và Spark LR/GBT truy vấn lúc nhận đơn, còn Protocol P truy vấn sau một lần giao xong và dùng tập đánh giá riêng. [Metric Protocol P đã lưu](reports/eta/eta_paper_metrics.csv)
 
 ## 2. Dữ liệu đầu vào
 
@@ -82,7 +99,7 @@ MySQL serving --> Streamlit dashboard
 
 Pipeline đọc và ghi Delta trực tiếp theo đường dẫn `s3a://`, không đăng ký bảng vào Hive Metastore và không gọi Spark Thrift Server. Vì vậy `lakehouse` và `metabase` là tuỳ chọn: tắt chúng không ảnh hưởng đến pipeline và dashboard. Dashboard đọc từ MySQL.
 
-Sơ đồ kho dữ liệu dạng bảng nằm tại docs/data_warehouse.txt. Chi tiết star schema nằm tại docs/star_schema.md.
+Sơ đồ và chi tiết các bảng nằm trong tài liệu star schema. [Star schema](docs/star_schema.md)
 
 ## 4. Các tầng dữ liệu
 
@@ -116,11 +133,11 @@ Quy trình hiện tại:
 - chia theo ngày theo mốc 60/20/20, bỏ hai ngày tại ranh giới theo cách lấy mẫu hiện tại;
 - chạy baseline median, SPEED và LightGBM với seed 42, 43, 44.
 
-Kết quả ghi vào `eta_paper_gold` và `eta_paper_metrics_gold`. Đây là kết quả tái lập ngoại tuyến trên cohort 1–120 phút. `spd` dùng cả file, còn `ntodo` và `rank` phụ thuộc nhãn tương lai của các đơn trong cửa sổ. Xem [audit Protocol P](docs/leak_inventory.md#audit-protocol-p) để biết phạm vi diễn giải.
+Kết quả ghi vào `eta_paper_gold` và `eta_paper_metrics_gold`. Đây là kết quả tái lập ngoại tuyến trên cohort 1–120 phút. `spd` dùng cả file, còn `ntodo` và `rank` phụ thuộc nhãn tương lai của các đơn trong cửa sổ. Xem [audit Protocol P](docs/eta/leak_inventory.md#audit-protocol-p) để biết phạm vi diễn giải.
 
 Protocol B ghi vào `eta_safe_gold` và `eta_safe_metrics_gold`. Kiểm soát trường đầu vào theo thời điểm biết trong `config/schema.yaml` và giới hạn lịch sử shipper tới thời điểm truy vấn.
 
-Cách biến CSV Yantai thành các bảng và tập huấn luyện của từng nhánh nằm trong tài liệu nguồn dữ liệu. [Nguồn dữ liệu huấn luyện](docs/training_data_lineage.md)
+Cách biến CSV Yantai thành các bảng và tập huấn luyện của từng nhánh nằm trong tài liệu nguồn dữ liệu. [Nguồn dữ liệu huấn luyện](docs/eta/training_data_lineage.md)
 
 ## 6. Cài đặt
 
@@ -178,7 +195,7 @@ shasum -a 256 data/delivery_yt.csv
 cp .env.example .env
 ~~~
 
-Chỉ khi build service `lakehouse` (chế độ đầy đủ, mục 6.1) thì Dockerfile mới cần ba gói nén đặt ngay trong thư mục gốc của repo. Chế độ tiết kiệm RAM (mục 6.2) không build `lakehouse` nên không cần ba file này. Tải đúng phiên bản từ Apache Archive và giữ nguyên tên file.
+Chỉ khi build service `lakehouse` (chế độ đầy đủ, mục 6.1) thì docker/lakehouse.Dockerfile mới cần ba gói nén đặt ngay trong thư mục gốc của repo. Chế độ tiết kiệm RAM (mục 6.2) không build `lakehouse` nên không cần ba file này. Tải đúng phiên bản từ Apache Archive và giữ nguyên tên file.
 
 - [Hadoop 3.3.6](https://archive.apache.org/dist/hadoop/common/hadoop-3.3.6/hadoop-3.3.6.tar.gz) (`hadoop-3.3.6.tar.gz`)
 - [Hive 2.3.10](https://archive.apache.org/dist/hive/hive-2.3.10/apache-hive-2.3.10-bin.tar.gz) (`apache-hive-2.3.10-bin.tar.gz`)
@@ -248,7 +265,7 @@ Trong chế độ này không dùng `docker compose up -d` không kèm tên serv
 Cách khuyến nghị:
 
 ~~~powershell
-docker compose exec jupyter python -u /home/jovyan/pipeline/flow.py
+docker compose exec jupyter python -u -m pipeline.flow
 ~~~
 
 Flow chạy theo thứ tự:
@@ -275,7 +292,7 @@ Khi lỗi, xem bước cuối trong Prefect và chạy lại flow từ đầu. C
 
 Hướng dẫn notebook có một bảng đường dẫn đầu vào, điều kiện lọc và kết quả của từng bước theo luồng Prefect. [Thứ tự chạy notebook](notebooks/README.md)
 
-Notebook 04b kiểm tra một đơn thật từ `data/delivery_yt.csv`. Chạy các cell để tính nhãn và đặc trưng, xem các nhánh cây LightGBM rồi đối chiếu phép cộng với dự đoán của máy. [Đối chiếu tính tay](notebooks/04b_eta_safe.ipynb)
+Notebook 06 kiểm tra một đơn thật từ `data/delivery_yt.csv`. Chạy các cell để tính nhãn và đặc trưng, xem các nhánh cây LightGBM rồi đối chiếu phép cộng với dự đoán của máy. [Đối chiếu tính tay](notebooks/06_eta_accept.ipynb)
 
 ## 9. Dashboard và kết quả
 
@@ -309,22 +326,20 @@ docker compose exec mysql mysql -udelivery -pdelivery delivery_source -e "SHOW T
 
 ## 10. Kiểm tra và test
 
-Nếu chạy kiểm tra ngoài Docker trên Windows, tạo môi trường ảo bằng Python 3.12 và cài thư viện từ `requirements.txt`.
+Để chạy ngoài Docker, cài repo dưới dạng editable trong môi trường ảo. Lệnh lấy danh sách thư viện từ `requirements.txt`.
 
 ~~~powershell
 py -3.12 -m venv .venv
-.venv\Scripts\python.exe -m pip install -r requirements.txt
-.venv\Scripts\python.exe scripts/validate_schema.py
+.venv\Scripts\python.exe -m pip install -e .
+.venv\Scripts\python.exe -m scripts.checks.validate_schema
 .venv\Scripts\python.exe -m pytest -m "not integration" -q
 ~~~
 
-Chạy trọn bộ unit test Spark và sau đó chạy integration trên Docker.
+Sau khi khởi động các dịch vụ theo mục 6, chạy unit test Spark rồi chạy integration trong Jupyter.
 
 ~~~powershell
-docker compose up -d --no-deps jupyter dashboard
-docker compose exec -T jupyter python -m pip install "pytest>=8,<9"
-docker compose exec -T -w /home/jovyan jupyter python -m pytest -m "not integration" -q -p no:cacheprovider
-docker compose exec -T -w /home/jovyan jupyter python -m pytest -m integration -q -p no:cacheprovider
+docker compose exec -T jupyter python -m pytest -m "not integration" -q -p no:cacheprovider
+docker compose exec -T jupyter python -m pytest -m integration -q -p no:cacheprovider
 ~~~
 
 Unit test Spark cần PySpark và JVM, có sẵn trong container Jupyter. Integration dùng Spark/Delta, MinIO, MySQL và API Prefect thật với CSV mẫu và các bảng có tiền tố riêng. Bộ test ghi dữ liệu, chạy lại sau một lỗi ghi MySQL được mô phỏng và kiểm tra cách phát hiện khóa bị mất. Xem [trạng thái triển khai](docs/implementation_status.md) để biết kết quả và giới hạn.
@@ -332,13 +347,13 @@ Unit test Spark cần PySpark và JVM, có sẵn trong container Jupyter. Integr
 Chạy Protocol P ngoài Docker:
 
 ~~~powershell
-.venv\Scripts\python.exe scripts/run_paper_protocol.py --source data/delivery_yt.csv
+.venv\Scripts\python.exe -m scripts.experiments.run_paper_protocol --source data/delivery_yt.csv
 ~~~
 
 Phân tích độ nhạy nhãn:
 
 ~~~powershell
-.venv\Scripts\python.exe scripts/run_label_sensitivity.py
+.venv\Scripts\python.exe -m scripts.experiments.run_label_sensitivity
 ~~~
 
 ## 11. Lỗi thường gặp
@@ -381,4 +396,4 @@ Nguồn tham khảo:
 - LaDe dataset: https://huggingface.co/datasets/Cainiao-AI/LaDe
 - Data dictionary: docs/data_dictionary.md
 - Schema và allowlist: config/schema.yaml
-- Phân tích giới hạn: docs/analysis_limits.md
+- Phân tích giới hạn: docs/eta/analysis_limits.md

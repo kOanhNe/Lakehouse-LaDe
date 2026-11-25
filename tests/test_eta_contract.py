@@ -1,7 +1,7 @@
 import pandas as pd
 import pytest
 
-from src.eta.features import (
+from eta.features import (
     FeatureContractError,
     assert_truncation_invariant,
     build_query_features,
@@ -10,7 +10,7 @@ from src.eta.features import (
     truncate_as_of,
     validate_columns,
 )
-from src.eta.splits import query_grid, time_boundaries, assign_time_split
+from eta.splits import query_grid, time_boundaries, assign_time_split
 
 
 def event_frame():

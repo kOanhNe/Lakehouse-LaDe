@@ -12,8 +12,9 @@ import numpy as np
 import pandas as pd
 import yaml
 
-ROOT = Path(__file__).resolve().parents[2]
-SCHEMA_PATH = ROOT / "config" / "schema.yaml"
+from lakehouse import PROJECT_ROOT
+
+SCHEMA_PATH = PROJECT_ROOT / "config" / "schema.yaml"
 
 
 class FeatureContractError(ValueError):

@@ -5,7 +5,10 @@ spark_logs
 .pytest_cache
 data
 notebooks
+reports
 **/__pycache__
 **/.ipynb_checkpoints
 .env
 .venv
+.worktrees
+**/*.egg-info

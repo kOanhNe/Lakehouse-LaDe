@@ -1,6 +1,8 @@
 services:
   lakehouse:
-    build: .
+    build:
+      context: .
+      dockerfile: docker/lakehouse.Dockerfile
     container_name: lakehouse
     hostname: lakehouse
     ports:
@@ -91,16 +93,18 @@ services:
       - "127.0.0.1:8888:8888"
       - "127.0.0.1:4040:4040"
     volumes:
-      - ./notebooks:/home/jovyan/work
-      - ./pipeline:/home/jovyan/pipeline
+      - ./notebooks:/home/jovyan/work/notebooks
+      - ./README.md:/home/jovyan/work/README.md:ro
+      - ./docs:/home/jovyan/work/docs:ro
+      - ./pipeline:/home/jovyan/work/pipeline:ro
       - ./scripts:/home/jovyan/work/scripts:ro
       - ./src:/home/jovyan/work/src:ro
       - ./config:/home/jovyan/work/config:ro
-      - ./tests:/home/jovyan/tests:ro
-      - ./pytest.ini:/home/jovyan/pytest.ini:ro
-      - ./dashboard:/home/jovyan/dashboard:ro
-      - ./data:/home/jovyan/data:ro
-      - ./reports:/home/jovyan/reports
+      - ./tests:/home/jovyan/work/tests:ro
+      - ./pytest.ini:/home/jovyan/work/pytest.ini:ro
+      - ./dashboard:/home/jovyan/work/dashboard:ro
+      - ./data:/home/jovyan/work/data:ro
+      - ./reports:/home/jovyan/work/reports
     environment:
       JUPYTER_ENABLE_LAB: "yes"
       MINIO_ENDPOINT: http://minio:9000
@@ -147,7 +151,9 @@ services:
     networks: [lakehouse-net]
 
   dashboard:
-    build: ./dashboard
+    build:
+      context: ./dashboard
+      dockerfile: ../docker/dashboard.Dockerfile
     container_name: dashboard
     environment:
       MYSQL_HOST: mysql

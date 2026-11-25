@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lakehouse-lade"
+version = "0.1.0"
+requires-python = ">=3.11"
+dynamic = ["dependencies"]
+
+[tool.setuptools]
+packages = ["lakehouse", "eta", "pipeline", "dashboard", "scripts", "scripts.checks", "scripts.experiments"]
+package-dir = {lakehouse = "src/lakehouse", eta = "src/eta"}
+
+[tool.setuptools.dynamic]
+dependencies = {file = ["requirements.txt"]}

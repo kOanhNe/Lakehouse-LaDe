@@ -1,18 +1,4 @@
-import sys
-from pathlib import Path
-
 import pytest
-
-
-ROOT = Path(__file__).resolve().parents[1]
-PIPELINE = ROOT / "pipeline"
-if not PIPELINE.is_dir():
-    PIPELINE = ROOT.parent / "pipeline"
-NOTEBOOKS = ROOT / "notebooks"
-if not NOTEBOOKS.is_dir():
-    NOTEBOOKS = ROOT / "work" if (ROOT / "work").is_dir() else ROOT
-for directory in (ROOT, PIPELINE, NOTEBOOKS):
-    sys.path.insert(0, str(directory))
 
 
 @pytest.fixture(scope="session")
@@ -36,7 +22,7 @@ def local_spark():
 @pytest.fixture
 def write_lade_csv():
     import csv
-    from src.eta.dataset import SOURCE_COLUMNS
+    from eta.dataset import SOURCE_COLUMNS
 
     def write(path, overrides, columns=SOURCE_COLUMNS):
         with path.open("w", encoding="utf-8", newline="") as output:

@@ -1,8 +1,8 @@
 """Kiểm thử phản thực tế cho các cột point-in-time của Protocol P-PIT."""
 import pandas as pd
 
-from src.eta import paper_protocol as pp
-from src.eta import paper_protocol_pit as pit
+from eta import paper_protocol as pp
+from eta import paper_protocol_pit as pit
 
 
 def raw_frame():

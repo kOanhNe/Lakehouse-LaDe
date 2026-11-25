@@ -4,11 +4,11 @@
 khu vực tại ngày nhận đơn (SCD2), bao nhiêu đơn bị gán sai khu vực?
     python scripts/scd2_evidence.py
 """
-import argparse, json, sys
+import argparse, json
 from pathlib import Path
 import pandas as pd
 
-ROOT = Path(__file__).resolve().parents[1]
+from lakehouse import PROJECT_ROOT as ROOT
 
 
 def evidence(df: pd.DataFrame) -> dict:
@@ -43,7 +43,7 @@ def evidence(df: pd.DataFrame) -> dict:
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--source", type=Path, default=ROOT / "data" / "delivery_yt.csv")
-    ap.add_argument("--output", type=Path, default=ROOT / "reports" / "scd2_evidence.json")
+    ap.add_argument("--output", type=Path, default=ROOT / "reports" / "scd2" / "evidence.json")
     a = ap.parse_args()
     res = evidence(pd.read_csv(a.source, dtype=str))
     a.output.parent.mkdir(parents=True, exist_ok=True)

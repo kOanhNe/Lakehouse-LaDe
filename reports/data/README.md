@@ -1,6 +1,6 @@
 # Báo cáo hiểu dữ liệu và tiền xử lý
 
-Báo cáo này được sinh từ `scripts/profile_delivery.py` trên toàn bộ file `data/delivery_yt.csv`. File nguồn có SHA-256 `aa5bca7fdaa8c89d4ab50a2ed2b94fb09f608acc49fc1108a1a612e9c0f5a7ad`, gồm 206.431 dòng và 17 cột. Metadata chính thức của LaDe-D cũng công bố split `delivery_yt` có 206.431 dòng; các giá trị của 17 cột đã được đối chiếu theo `order_id` với parquet chính thức, không phát hiện khác biệt.
+Báo cáo này được sinh từ `scripts/checks/profile_delivery.py` trên toàn bộ file `data/delivery_yt.csv`. File nguồn có SHA-256 `aa5bca7fdaa8c89d4ab50a2ed2b94fb09f608acc49fc1108a1a612e9c0f5a7ad`, gồm 206.431 dòng và 17 cột. Metadata chính thức của LaDe-D cũng công bố split `delivery_yt` có 206.431 dòng; các giá trị của 17 cột đã được đối chiếu theo `order_id` với parquet chính thức, không phát hiện khác biệt.
 
 ## Nguồn và grain
 
@@ -63,7 +63,8 @@ Không suy ra tên cho 16 mã `aoi_type` vì data card chỉ mô tả đây là 
 Chạy lại bằng:
 
 ```powershell
-.venv/Scripts/python.exe scripts/profile_delivery.py
+.venv/Scripts/python.exe -m scripts.checks.profile_delivery
 ```
 
-Nguồn tham khảo đã lưu tại `reports/data/sources/`: data card LaDe-D, README repository, website và paper.
+`row_quality.csv.gz` là tệp sinh khi chạy kiểm kê. Lệnh trên tái tạo tệp từ CSV Yantai.
+[Nguồn LaDe](../../docs/00_data_audit.md#nguồn-lade)

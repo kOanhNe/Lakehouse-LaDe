@@ -1,10 +1,8 @@
 """Validate schema.yaml and enforce an explicit status for every declared column."""
-from pathlib import Path
-
 import yaml
 
 
-ROOT = Path(__file__).resolve().parents[1]
+from lakehouse import PROJECT_ROOT as ROOT
 
 
 def validate(path=ROOT / "config" / "schema.yaml"):

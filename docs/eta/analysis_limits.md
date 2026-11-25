@@ -2,7 +2,7 @@
 
 Các số dưới đây sinh từ script trong `scripts/`, chạy trên `data/delivery_yt.csv`.
 
-## 1. Bộ lọc nhãn 1-120 phút của bài báo (`scripts/run_label_sensitivity.py`)
+## 1. Bộ lọc nhãn 1-120 phút của bài báo (`scripts/experiments/run_label_sensitivity.py`)
 Bài báo chỉ giữ cặp (truy vấn, đơn) có số phút còn lại trong (0, 120]. Bộ lọc này loại khoảng 48% cặp. Bảng dưới cho thấy kết quả thay đổi thế nào khi đổi ngưỡng (LightGBM seed 42; kết quả chính thức dùng 3 seed):
 
 | Ngưỡng nhãn | Giữ lại % cặp | MAE trung vị | MAE SPEED | MAE LightGBM | ACC@20 LightGBM |
@@ -17,7 +17,7 @@ Bài báo chỉ giữ cặp (truy vấn, đơn) có số phút còn lại trong 
 ## 2. Tập truy vấn của A-lite / B (`prereg.yaml`)
 `query_grid` nay được dùng: mỗi (shipper, ngày) giữ tối đa 12 truy vấn, chọn bằng băm xác định (seed 42), A-lite và B dùng chung tập này (123.117 dòng thay vì 206.062). Trên tập chung đó, LightGBM test MAE: A-lite 114,2, B 117,5 phút (mốc trung vị 182,3). Chênh lệch do leakage khoảng 3 phút, không lớn.
 
-## 3. SCD2 shipper (`scripts/scd2_evidence.py`)
+## 3. SCD2 shipper (`scripts/checks/scd2_evidence.py`)
 Chỉ 3/205 shipper (1,5%) đổi khu vực chính, với 21 lần đổi; nếu chỉ lưu khu vực hiện tại thì 1.977/206.431 đơn (1,0%) bị gán sai khu vực của shipper tại ngày nhận. Kết luận: SCD2 đúng về mặt dữ liệu nhưng tác động nhỏ trên bộ dữ liệu này. Đồ án **không** khẳng định SCD2 làm ETA chính xác hơn; nó là thành phần kiến trúc.
 
 ## 4. Phạm vi so sánh kết quả ETA
@@ -26,7 +26,7 @@ Chỉ 3/205 shipper (1,5%) đổi khu vực chính, với 21 lần đổi; nếu
 - Protocol B là bài toán phụ tại lúc nhận đơn, có kiểm soát leakage theo contract. Phép so với A-lite dùng cùng tập truy vấn.
 - Spark LR/GBT là baseline thời lượng giao hàng từ lúc nhận đơn, đánh giá trên cohort riêng có GPS hợp lệ, khoảng cách tối đa 50 km và thời lượng tối đa 24 giờ.
 
-MAE khoảng 20,7 phút mô tả LightGBM trên tập test của Protocol P. Mỗi phép xếp hạng dùng các mô hình có cùng thời điểm truy vấn, nhãn và tập đánh giá. Xem [bảng vai trò trong README](../readme.md#1-bài-toán).
+MAE khoảng 20,7 phút mô tả LightGBM trên tập test của Protocol P. Mỗi phép xếp hạng dùng các mô hình có cùng thời điểm truy vấn, nhãn và tập đánh giá. Xem [bảng vai trò trong README](../../README.md#1-bài-toán).
 
 ## 5. Kiểm tra ETA lúc nhận đơn cho vận hành
 
@@ -48,14 +48,14 @@ có dấu trên validation. Đo tỷ lệ đơn test lọt khoảng cùng độ 
 thực tế mất hơn ba giờ. Ba giờ và 10% là mốc minh họa cho cách dùng nội bộ.
 
 ~~~bash
-python scripts/run_eta_accept_benchmark.py --holdout
+python -m scripts.experiments.run_eta_accept_benchmark --holdout
 ~~~
 
 ### Kết quả trên 25.345 đơn nhận từ 25/09 đến 31/10/2022
 
 Mỗi phương án đọc cùng một tập test trên CSV Yantai. Có 73.107 đơn để fit và
 24.629 đơn validation có nhãn trước khi bắt đầu test. Các hàng LightGBM là
-trung bình qua seed 42–44. [Kết quả theo seed](../reports/eta_accept_benchmark_holdout.csv)
+trung bình qua seed 42–44. [Kết quả theo seed](../../reports/eta/eta_accept_benchmark_holdout.csv)
 
 | Phương án | MAE (phút) | ACC@30 | ACC@60 | P90 sai số (phút) | Dự đoán sớm hơn thực tế trên 60 phút |
 | --- | ---: | ---: | ---: | ---: | ---: |
@@ -84,7 +84,7 @@ Repo hiện huấn luyện và chấm theo batch. Dashboard đọc metric đã g
 Khi bỏ thời điểm giao và nhãn của đơn `2641862`, `build_eta_samples()`
 bỏ đơn đó khỏi bảng mẫu. Đường dự đoán lúc nhận cần dựng đặc trưng cho
 đơn còn mở và nạp lại mô hình cùng giá trị điền thiếu đã chốt. Phép đo
-trên Yantai chỉ dùng đơn có nhãn giao hàng từ năm 2022. [Builder mẫu](../src/eta/dataset.py) · [Bước batch Protocol B](../notebooks/04b_eta_safe.ipynb)
+trên Yantai chỉ dùng đơn có nhãn giao hàng từ năm 2022. [Builder mẫu](../../src/eta/dataset.py) · [Bước batch Protocol B](../../notebooks/06_eta_accept.ipynb)
 
 Một hướng để cải thiện ETA vận hành là đo thời gian theo tuyến đường
 và thêm trạng thái hàng chờ đã quan sát. DeepETA của Uber dùng dữ liệu

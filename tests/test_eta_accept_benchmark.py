@@ -2,8 +2,8 @@ from pathlib import Path
 
 import pandas as pd
 
-from scripts.run_eta_accept_benchmark import validation_rows
-from src.eta.dataset import build_accept_time_features, build_eta_samples, read_lade_csv
+from scripts.experiments.run_eta_accept_benchmark import validation_rows
+from eta.dataset import build_accept_time_features, build_eta_samples, read_lade_csv
 
 
 def test_accept_time_features_use_observed_aoi_and_gps(write_lade_csv, tmp_path):

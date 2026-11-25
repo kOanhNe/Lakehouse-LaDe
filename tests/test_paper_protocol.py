@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 
-from src.eta import paper_protocol as pp
+from eta import paper_protocol as pp
 
 
 def raw_frame():
@@ -76,7 +76,7 @@ def test_paper_ntodo_and_rank_use_future_label_cap():
 
 
 def test_query_grid_is_used_and_shared_by_both_protocols():
-    from src.eta.dataset import build_eta_samples
+    from eta.dataset import build_eta_samples
     n = 20
     ts = pd.date_range("2022-06-01 08:00", periods=n, freq="10min")
     ev = pd.DataFrame({

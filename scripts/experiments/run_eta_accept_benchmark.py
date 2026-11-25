@@ -4,20 +4,18 @@ from __future__ import annotations
 import argparse
 import hashlib
 from math import ceil
-import sys
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import yaml
 
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT))
+from lakehouse import PROJECT_ROOT as ROOT
 
-from scripts.run_eta_experiment import FEATURES
-from src.eta.dataset import build_eta_samples, read_lade_csv
-from src.eta.model import fit_lightgbm
-from src.eta.splits import time_boundaries
+from scripts.experiments.run_eta_experiment import FEATURES
+from eta.dataset import build_eta_samples, read_lade_csv
+from eta.model import fit_lightgbm
+from eta.splits import time_boundaries
 
 TARGET = "target_remaining_minutes"
 AOI_FEATURES = ["aoi_past_avg_min", "aoi_past_count"]
@@ -194,10 +192,10 @@ def main() -> None:
     if args.holdout:
         if args.seeds is not None:
             parser.error("--holdout uses the frozen seeds from prereg.yaml")
-        output = args.output or ROOT / "reports" / "eta_accept_benchmark_holdout.csv"
+        output = args.output or ROOT / "reports" / "eta" / "eta_accept_benchmark_holdout.csv"
         run_holdout(args.source, output)
     else:
-        output = args.output or ROOT / "reports" / "eta_accept_benchmark_validation.csv"
+        output = args.output or ROOT / "reports" / "eta" / "eta_accept_benchmark_validation.csv"
         run(args.source, output, args.seeds)
 
 

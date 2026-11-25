@@ -23,4 +23,4 @@ Quy tắc theo vai trò:
 - `label`: truyền qua kênh riêng và không được đưa vào hàm tạo feature.
 
 Nếu thêm cột mới vào bất kỳ tầng nào, phải cập nhật `schema.yaml`, ghi status
-(`allowed`, `forbidden`, `label` hoặc `ignored`) và chạy `scripts/validate_schema.py`.
+(`allowed`, `forbidden`, `label` hoặc `ignored`) và chạy `scripts/checks/validate_schema.py`.

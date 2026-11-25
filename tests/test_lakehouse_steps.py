@@ -1,14 +1,13 @@
 from datetime import date, datetime
 import json
-import sys
 
 import pytest
 
-from scripts import check_project
+from lakehouse import notebooks
 
 
 def test_pipeline_notebook_definitions_compile():
-    assert check_project.compile_notebook_steps()
+    assert notebooks.compile_notebook_steps()
 
 
 def test_notebook_loader_skips_unmarked_examples(tmp_path, monkeypatch):
@@ -21,22 +20,21 @@ def test_notebook_loader_skips_unmarked_examples(tmp_path, monkeypatch):
     ]
     path = tmp_path / name
     path.write_text(json.dumps({"cells": cells}), encoding="utf-8")
-    monkeypatch.setattr(check_project, "NOTEBOOK_DIR", tmp_path)
-    monkeypatch.setattr(check_project, "PIPELINE_NOTEBOOKS", (name,))
-    monkeypatch.setattr(sys, "path", sys.path.copy())
+    monkeypatch.setattr(notebooks, "NOTEBOOK_DIR", tmp_path)
+    monkeypatch.setattr(notebooks, "PIPELINE_NOTEBOOKS", (name,))
 
-    steps = check_project.load_notebook_steps()
+    steps = notebooks.load_notebook_steps()
     assert steps.transform(3) == 7
 
     example["metadata"]["tags"] = ["pipeline-step"]
     path.write_text(json.dumps({"cells": cells}), encoding="utf-8")
     with pytest.raises(ValueError, match="Move runnable examples"):
-        check_project.load_notebook_steps()
+        notebooks.load_notebook_steps()
 
 
 @pytest.fixture(scope="module")
 def steps(local_spark):
-    return check_project.load_notebook_steps()
+    return notebooks.load_notebook_steps()
 
 
 def test_bronze_contract_and_unique_keys(local_spark, steps, tmp_path, write_lade_csv):
@@ -86,7 +84,7 @@ def test_silver_cohort_flags_and_rejected_reasons(local_spark, steps, tmp_path, 
 
 
 def test_scd2_tie_boundaries_and_join_grain(local_spark):
-    from lakehouse_common import courier_history, join_courier_history
+    from lakehouse.common import courier_history, join_courier_history
 
     orders = local_spark.createDataFrame([
         ("a", 1, 20, datetime(2022, 6, 4, 1)),
@@ -99,16 +97,33 @@ def test_scd2_tie_boundaries_and_join_grain(local_spark):
     assert [row.region_id for row in rows] == [10, 20, 10]
     assert [row.end_date for row in rows] == [date(2022, 6, 5), date(2022, 6, 6), date.max]
     assert [row.is_active for row in rows] == [False, False, True]
+    assert all(row.effective_date < row.end_date for row in rows)
     joined = join_courier_history(orders, history).orderBy("order_id").collect()
     assert [row.courier_region_id for row in joined] == [10, 10, 20, 10]
+    assert joined[0].region_id == 20 and joined[0].courier_region_id == 10
     with pytest.raises(ValueError, match="order_id"):
         join_courier_history(orders, history.unionByName(history))
     with pytest.raises(ValueError, match="exactly one"):
         join_courier_history(orders, history.filter("region_id = 10"))
 
 
+def test_haversine_valid_and_invalid_coordinates(local_spark):
+    from lakehouse.common import haversine
+
+    coordinates = local_spark.createDataFrame([
+        (37.0, 121.0, 37.0, 121.0),
+        (37.0, 121.0, None, None),
+        (37.0, 121.0, 0.0, 0.0),
+        (37.0, 121.0, 200.0, 121.0),
+        (37.0, 121.0, float("nan"), 121.0),
+    ], ["la1", "ln1", "la2", "ln2"])
+    distances = coordinates.select(haversine("la1", "ln1", "la2", "ln2").alias("km")).collect()
+    assert distances[0].km == 0
+    assert all(row.km is None for row in distances[1:])
+
+
 def test_star_schema_and_fact_foreign_keys(local_spark):
-    from lakehouse_common import attach_dimension_keys, build_dimensions
+    from lakehouse.common import attach_dimension_keys, build_dimensions
 
     fact = local_spark.createDataFrame([
         ("a", 10, 100, 2, 37.3, 121.4, datetime(2022, 6, 4, 15), datetime(2022, 6, 5, 1)),
@@ -130,6 +145,9 @@ def test_star_schema_and_fact_foreign_keys(local_spark):
     incomplete = {**dims, "dim_date": dims["dim_date"].filter("date_key <> 20220605")}
     with pytest.raises(ValueError, match="delivery_date_key"):
         attach_dimension_keys(fact, incomplete)
+    conflict = fact.withColumn("aoi_type", fact.aoi_type + (fact.order_id == "a").cast("int"))
+    with pytest.raises(ValueError, match="aoi_type"):
+        build_dimensions(conflict)
 
 
 def test_serving_aggregates_known_orders(local_spark, steps):

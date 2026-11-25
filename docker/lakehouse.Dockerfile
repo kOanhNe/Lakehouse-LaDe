@@ -99,17 +99,17 @@ RUN rm -f ${HIVE_HOME}/lib/guava-*.jar && \
 # =========================================================
 
 # Hadoop configuration
-COPY docker/config/ ${HADOOP_CONF_DIR}/
+COPY docker/hadoop-conf/ ${HADOOP_CONF_DIR}/
 
 RUN find ${HADOOP_CONF_DIR} -type f \
     -exec sed -i 's/\r$//' {} +
 
 # Hive configuration
-COPY docker/config/hive-site.xml ${HIVE_HOME}/conf/
+COPY docker/hadoop-conf/hive-site.xml ${HIVE_HOME}/conf/
 
 # Spark configuration
-COPY docker/config/hive-site.xml ${SPARK_HOME}/conf/
-COPY docker/config/spark-defaults.conf ${SPARK_HOME}/conf/
+COPY docker/hadoop-conf/hive-site.xml ${SPARK_HOME}/conf/
+COPY docker/hadoop-conf/spark-defaults.conf ${SPARK_HOME}/conf/
 
 RUN sed -i 's/\r$//' ${SPARK_HOME}/conf/spark-defaults.conf
 

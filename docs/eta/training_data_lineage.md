@@ -41,26 +41,26 @@ AOI, tọa độ điểm giao `lat/lng`, thời điểm nhận/giao, GPS quanh h
 đó và mã ngày `ds`. CSV ghi giờ theo dạng `MM-DD HH:MM:SS`. Spark dựng
 timestamp với năm mặc định 2022 và múi giờ `Asia/Shanghai`. Pandas trong
 Protocol B cũng dùng năm 2022 để dựng timestamp từ chuỗi.
-[CSV nguồn](../data/delivery_yt.csv) · [Hợp đồng dữ liệu](../config/schema.yaml)
+[CSV nguồn](../../data/delivery_yt.csv) · [Hợp đồng dữ liệu](../../config/schema.yaml)
 
 Data card mô tả `ds` là ngày giao. Trên bản CSV Yantai đang dùng, `ds` trùng
 ngày nhận ở **206.431/206.431** dòng và trùng ngày giao ở **203.444/206.431**
 dòng. Protocol P lấy `ds` nguyên gốc để nhóm và chia ngày. Protocol B và Spark
 lấy ngày từ thời điểm nhận đã parse.
-[Data card LaDe-D lưu trong repo](../reports/data/sources/lade_d_dataset_card.md) · [Thống kê audit](../reports/data/summary.json)
+[Data card LaDe-D lưu trong repo](https://huggingface.co/datasets/Cainiao-AI/LaDe-D) · [Thống kê audit](../../reports/data/summary.json)
 
-Notebook **00** gọi `scripts/profile_delivery.py` trên CSV để thống kê dữ liệu thiếu, ngày nhận/giao, GPS bất thường, thời lượng và khoảng cách. Đầu ra là `reports/data/summary.json`, `row_quality.csv.gz`, các bảng thống kê và biểu đồ. Luồng audit dừng ở báo cáo. Ba nhánh huấn luyện lấy dữ liệu từ Bronze hoặc fact như sơ đồ trên. [Script audit](../scripts/profile_delivery.py) · [Chi tiết audit](00_data_audit.md)
+Notebook **00** gọi `scripts/checks/profile_delivery.py` trên CSV để thống kê dữ liệu thiếu, ngày nhận/giao, GPS bất thường, thời lượng và khoảng cách. Đầu ra là `reports/data/summary.json`, `row_quality.csv.gz`, các bảng thống kê và biểu đồ. Luồng audit dừng ở báo cáo. Ba nhánh huấn luyện lấy dữ liệu từ Bronze hoặc fact như sơ đồ trên. [Script audit](../../scripts/checks/profile_delivery.py) · [Chi tiết audit](../00_data_audit.md)
 
 ## 2. Từ CSV tới Bronze, Silver và fact
 
 | Khâu | Đầu vào | Cách tạo và đầu ra |
 | --- | --- | --- |
-| **01 · Bronze** | Spark đọc URI `SOURCE_PATH` nếu được cấu hình, mặc định là `s3a://lakehouse/delivery_yt.csv`. Khi đường dẫn này không tồn tại, code dùng `LOCAL_SOURCE`, mặc định là CSV repo được mount tại `/home/jovyan/data/delivery_yt.csv`. | Đọc 17 cột dưới dạng chuỗi, kiểm tra header và `order_id` có giá trị, duy nhất. Ghi và đối soát khóa trong `delivery_bronze`, **206.431 dòng**. Log Bronze ghi URI thực tế đã đọc. |
+| **01 · Bronze** | Spark đọc URI `SOURCE_PATH` nếu được cấu hình, mặc định là `s3a://lakehouse/delivery_yt.csv`. Khi đường dẫn này không tồn tại, code dùng `LOCAL_SOURCE`, mặc định là CSV repo được mount tại `/home/jovyan/work/data/delivery_yt.csv`. | Đọc 17 cột dưới dạng chuỗi, kiểm tra header và `order_id` có giá trị, duy nhất. Ghi và đối soát khóa trong `delivery_bronze`, **206.431 dòng**. Log Bronze ghi URI thực tế đã đọc. |
 | **02 · Silver và Rejected** | `delivery_bronze` | Parse thời điểm nhận/giao, ép kiểu tọa độ và mã, tính `delivery_minutes`, số ngày chênh và khoảng cách Haversine. Đơn có timestamp hợp lệ và thời lượng dương vào `delivery_silver` (**206.062 dòng**). Các dòng còn lại vào `delivery_rejected` kèm `reject_reason` (**369 dòng**, đều có thời lượng bằng 0 trên CSV này). |
 | **03/03b · Dimension** | `delivery_silver` | Dựng lịch sử khu vực của shipper và các bảng tra cứu khu, AOI, ngày, giờ. |
 | **04 · Gold fact** | Silver và năm bảng dimension | Gắn khóa shipper có hiệu lực tại ngày nhận, cùng khóa vùng, AOI, ngày nhận, ngày giao và giờ nhận. `fact_delivery_task_gold` giữ **206.062 dòng**, một dòng mỗi đơn Silver. |
 
-Silver gắn cờ GPS, khoảng cách quá 50 km và thời lượng quá 24 giờ. Những đơn có timestamp hợp lệ và thời lượng dương vẫn được giữ trong Silver và fact. Bộ lọc **24 giờ và 50 km** được áp dụng khi dựng tập học cho Spark LR/GBT. Các bảng Delta nằm dưới `s3a://lakehouse/warehouse/`. [Code lọc Silver](../notebooks/02_transform_silver.ipynb) · [Code dựng fact và tập Spark](../notebooks/04_fact_and_ml_gold.ipynb)
+Silver gắn cờ GPS, khoảng cách quá 50 km và thời lượng quá 24 giờ. Những đơn có timestamp hợp lệ và thời lượng dương vẫn được giữ trong Silver và fact. Bộ lọc **24 giờ và 50 km** được áp dụng khi dựng tập học cho Spark LR/GBT. Các bảng Delta nằm dưới `s3a://lakehouse/warehouse/`. [Code lọc Silver](../../notebooks/02_transform_silver.ipynb) · [Code dựng fact và tập Spark](../../notebooks/04_fact.ipynb)
 
 ### Năm bảng dimension được dựng thế nào
 
@@ -72,7 +72,7 @@ Silver gắn cờ GPS, khoảng cách quá 50 km và thời lượng quá 24 gi�
 | `dim_date_gold` | Sinh một dòng cho mỗi ngày từ ngày sớm nhất đến ngày muộn nhất trong các sự kiện nhận/giao của Silver. |
 | `dim_hour_gold` | Sinh 24 dòng cho các giờ 0–23 và gán nhóm buổi trong ngày. |
 
-Theo notebook, luồng Prefect là **01 → 02 → 03 → 04b → 04c → 04 → 05**. Notebook 03 gộp hai task dựng dimension. B và P đọc Bronze. Fact đọc Silver và dimension. [Hàm dựng dimension và nối fact](../notebooks/lakehouse_common.py) · [Thứ tự Prefect](../pipeline/flow.py) · [Notebook](../notebooks/README.md)
+Luồng Prefect tương ứng với các notebook **01 → 02 → 03 → 06 → 07 → 04 → 05**. Notebook 03 gộp hai task dựng dimension. B và P đọc Bronze. Fact đọc Silver và dimension. [Hàm dựng dimension và nối fact](../../src/lakehouse/common.py) · [Thứ tự Prefect](../../pipeline/flow.py) · [Thứ tự trình bày notebook](../../notebooks/README.md)
 
 ## 3. Ba nhánh tạo tập học
 
@@ -84,7 +84,7 @@ Theo notebook, luồng Prefect là **01 → 02 → 03 → 04b → 04c → 04 →
 4. Mỗi mẫu có tám đặc trưng. `dis` là khoảng cách giữa hai điểm giao tính bằng mét, `elapsed` là thời gian ứng viên đã chờ từ lúc nhận và `tmin` là phút trong ngày của truy vấn. `ndone`, `ntodo` và `rank` lần lượt là vị trí trên quỹ đạo, số ứng viên đã lọc và hạng khoảng cách. `aoi` lấy từ loại AOI của đơn mục tiêu, còn `spd` là tốc độ shipper tính trên cả file, theo m/phút.
 5. Chia theo thứ tự ngày của `ds` ở mốc 60% và 80%, bỏ hai ngày tại ranh giới theo code tái lập. Tập train dùng để fit LightGBM và tính median. Validation dùng để dừng sớm LightGBM. Tập test dùng để chấm LightGBM, median và SPEED với công thức khoảng cách chia tốc độ.
 
-Các cửa sổ chồng lấn và nhiều đơn cho mỗi truy vấn giải thích vì sao số **cặp** lớn hơn số **đơn** CSV. Protocol P chọn cohort theo nhãn và có đặc trưng phụ thuộc dữ liệu tương lai, nên metric mô tả đánh giá ngoại tuyến trên cohort này. [Builder và cách tính metric Protocol P](../src/eta/paper_protocol.py) · [Audit leakage](leak_inventory.md#audit-protocol-p) · [Đo độ nhạy theo cohort](leak_measurement.md)
+Các cửa sổ chồng lấn và nhiều đơn cho mỗi truy vấn giải thích vì sao số **cặp** lớn hơn số **đơn** CSV. Protocol P chọn cohort theo nhãn và có đặc trưng phụ thuộc dữ liệu tương lai, nên metric mô tả đánh giá ngoại tuyến trên cohort này. [Builder và cách tính metric Protocol P](../../src/eta/paper_protocol.py) · [Audit leakage](leak_inventory.md#audit-protocol-p) · [Đo độ nhạy theo cohort](leak_measurement.md)
 
 ### 3.2. Protocol B · ETA tại lúc nhận đơn
 
@@ -93,7 +93,7 @@ Các cửa sổ chồng lấn và nhiều đơn cho mỗi truy vấn giải thí
 3. Mô hình dùng chín đặc trưng. Bốn đặc trưng lịch sử là `pending_order_count`, `completed_order_count`, `courier_avg_min`, `distance_to_last_delivery_km`. Năm đặc trưng của đơn đang xét là `candidate_lat`, `candidate_lng`, `candidate_aoi_type`, `candidate_region_id` và `accept_hour`. Khoảng cách lịch sử đo từ GPS của lần giao gần nhất tới điểm giao đích của đơn đang xét.
 4. `query_grid()` chọn tối đa 12 đơn cho mỗi shipper mỗi ngày bằng SHA-256 với seed lấy mẫu 42. Đặc trưng lịch sử được dựng trước khi lấy mẫu này. Sau khi lấy mẫu còn **123.117 đơn**, chia theo ngày nhận ở mốc 60% và 80%. Giá trị thiếu trong cả ba tập được điền bằng median của từng đặc trưng tính trên train. LightGBM dùng validation để dừng sớm.
 
-`courier_avg_min` ở đây đổi theo mốc nhận từng đơn. Biến thể **A-lite** trong script kiểm tra leakage dùng trung bình cả file của shipper trên cùng tập truy vấn, để so với B. Prefect chạy biến thể B. [Builder Protocol B](../src/eta/dataset.py) · [Lấy mẫu và chia ngày](../src/eta/splits.py) · [Script so A-lite và B](../scripts/run_eta_experiment.py)
+`courier_avg_min` ở đây đổi theo mốc nhận từng đơn. Biến thể **A-lite** trong script kiểm tra leakage dùng trung bình cả file của shipper trên cùng tập truy vấn, để so với B. Prefect chạy biến thể B. [Builder Protocol B](../../src/eta/dataset.py) · [Lấy mẫu và chia ngày](../../src/eta/splits.py) · [Script so A-lite và B](../../scripts/experiments/run_eta_experiment.py)
 
 ### 3.3. Spark LR/GBT · baseline thời lượng giao hàng
 
@@ -102,7 +102,7 @@ Các cửa sổ chồng lấn và nhiều đơn cho mỗi truy vấn giải thí
 3. Chia theo `order_date` dựng từ `accept_ts`. Mặc định train trước **01/10/2022**, test từ ngày đó trở đi. Code tính `courier_train_avg_min` từ nhãn trên toàn train theo shipper rồi gán cho cả train/test. Shipper thiếu lịch sử dùng trung bình toàn train. Do đó, với dòng train, feature này có thể chứa đóng góp của chính nhãn dòng đó.
 4. LR và GBT fit trên `label_log = log1p(delivery_minutes)`. Khi chấm test, code đổi dự đoán về phút bằng `expm1` và chặn dưới tại 0. Hai mốc so sánh là median và trung bình thời lượng trên train.
 
-Phép đo ảnh hưởng của `courier_train_avg_min` dựng lại cohort Spark rồi dùng LightGBM để đối chiếu các cách tạo feature. Đây là thí nghiệm audit riêng với kết quả LR/GBT của pipeline. [Huấn luyện Spark](../notebooks/04_fact_and_ml_gold.ipynb) · [Phép đo feature shipper](leak_measurement.md#3-baseline-spark-courier_train_avg_min)
+Phép đo ảnh hưởng của `courier_train_avg_min` dựng lại cohort Spark rồi dùng LightGBM để đối chiếu các cách tạo feature. Đây là thí nghiệm audit riêng với kết quả LR/GBT của pipeline. [Huấn luyện Spark](../../notebooks/04_fact.ipynb) · [Phép đo feature shipper](leak_measurement.md#3-baseline-spark-courier_train_avg_min)
 
 ### Số dòng dùng để fit và chấm trên CSV Yantai
 
@@ -120,7 +120,7 @@ chia theo danh sách ngày của từng nhánh.
 
 Train là tập fit mô hình, validation hướng dẫn dừng sớm của LightGBM, còn test
 dùng để báo sai số trên dữ liệu giữ lại. So sánh MAE trong từng bài toán trên
-cùng tập đánh giá. [Cấu hình dữ liệu](../config/prereg.yaml) · [Phạm vi so sánh ETA](analysis_limits.md#4-phạm-vi-so-sánh-kết-quả-eta)
+cùng tập đánh giá. [Cấu hình dữ liệu](../../config/prereg.yaml) · [Phạm vi so sánh ETA](analysis_limits.md#4-phạm-vi-so-sánh-kết-quả-eta)
 
 ### 3.4. Thử nghiệm thêm lịch sử AOI và GPS cho Protocol B
 
@@ -130,7 +130,7 @@ Script xác nhận SHA-256 của CSV Yantai trước khi tạo tập mẫu. Cả
 - `accept_to_stop_km` dùng GPS lúc nhận và tọa độ đích từ role `candidate`. GPS cần có tọa độ hợp lệ và `accept_gps_ts <= accept_ts`.
 - Baseline dùng median của nhãn train. Ba biến thể LightGBM dùng cùng cấu hình, điền giá trị thiếu bằng median từng đặc trưng trên train và chạy seed mô hình 42, 43, 44 theo `prereg.yaml`.
 
-`ACC@20` và `ACC@30` là phần trăm đơn có sai số tuyệt đối tối đa 20 và 30 phút. Các hàng LightGBM ghi trung bình qua ba seed, với độ lệch chuẩn mẫu bên cạnh MAE. Seed chọn đơn giữ ở 42, nên độ lệch chuẩn chỉ phản ánh biến động theo seed mô hình. [CSV kết quả trên LightGBM 4.7.0](../reports/eta_accept_benchmark_validation.csv)
+`ACC@20` và `ACC@30` là phần trăm đơn có sai số tuyệt đối tối đa 20 và 30 phút. Các hàng LightGBM ghi trung bình qua ba seed, với độ lệch chuẩn mẫu bên cạnh MAE. Seed chọn đơn giữ ở 42, nên độ lệch chuẩn chỉ phản ánh biến động theo seed mô hình. [CSV kết quả trên LightGBM 4.7.0](../../reports/eta/eta_accept_benchmark_validation.csv)
 
 | Biến thể | MAE (phút) | ACC@20 | ACC@30 | P90 sai số tuyệt đối (phút) |
 | --- | ---: | ---: | ---: | ---: |
@@ -139,12 +139,12 @@ Script xác nhận SHA-256 của CSV Yantai trước khi tạo tập mẫu. Cả
 | B + AOI | 111,14 ± 0,31 | 21,64% | 31,14% | 224,12 |
 | B + AOI + GPS | 109,60 ± 0,14 | 22,66% | 32,51% | 223,04 |
 
-Thử nghiệm gọi `build_eta_samples(..., include_aoi_gps=True)` để gắn đặc trưng vào bảng mẫu chung. Flow hiện dùng cấu hình Protocol B đã đăng ký. Muốn so Spark LR/GBT trên bảng này, cần fit lại trên cùng các mã đơn, mốc nhận và nhãn. [Script thử nghiệm](../scripts/run_eta_accept_benchmark.py) · [Hợp đồng cột](../config/schema.yaml)
+Thử nghiệm gọi `build_eta_samples(..., include_aoi_gps=True)` để gắn đặc trưng vào bảng mẫu chung. Flow hiện dùng cấu hình Protocol B đã đăng ký. Muốn so Spark LR/GBT trên bảng này, cần fit lại trên cùng các mã đơn, mốc nhận và nhãn. [Script thử nghiệm](../../scripts/experiments/run_eta_accept_benchmark.py) · [Hợp đồng cột](../../config/schema.yaml)
 
-Notebook 04b chọn một mẫu validation để đối chiếu nhãn, lịch sử AOI, Haversine và tổng giá trị lá cây với kết quả mô hình. [Đối chiếu từ CSV đến dự đoán](../notebooks/04b_eta_safe.ipynb)
+Notebook 06 chọn một mẫu validation để đối chiếu nhãn, lịch sử AOI, Haversine và tổng giá trị lá cây với kết quả mô hình. [Đối chiếu từ CSV đến dự đoán](../../notebooks/06_eta_accept.ipynb)
 
 ~~~bash
-python scripts/run_eta_accept_benchmark.py
+python -m scripts.experiments.run_eta_accept_benchmark
 ~~~
 
 ## 4. Dữ liệu được lưu và đưa lên dashboard
@@ -162,7 +162,8 @@ Pipeline lưu dự đoán và metric theo các nhánh sau.
 
 Dashboard chỉ đọc bộ bảng MySQL của một lần chạy `COMPLETED` có cùng mã lần chạy.
 Báo cáo audit trong `reports/` và các script chạy độc lập là nhánh nghiên cứu.
-`run_paper_protocol_pit.py`, `run_paper_protocol_cohort.py` và
-`check_courier_avg_leak.py` đọc CSV để đo độ nhạy ngoại tuyến. Prefect gọi các
-bước huấn luyện ở mục 3.
-[Serving MySQL](../notebooks/05_serving_layer.ipynb) · [Kiểm tra snapshot của dashboard](../dashboard/serving.py) · [Các phép đo audit](leak_measurement.md)
+Hai biến thể `--variant pit` và `--variant cohort` của `run_paper_protocol` đọc
+CSV để đo độ nhạy ngoại tuyến của Protocol P. `check_courier_avg_leak` dùng
+cùng CSV để kiểm tra đặc trưng lịch sử shipper của baseline Spark. Prefect gọi
+các bước huấn luyện ở mục 3.
+[Serving MySQL](../../notebooks/05_serving.ipynb) · [Kiểm tra snapshot của dashboard](../../dashboard/serving.py) · [Các phép đo audit](leak_measurement.md)

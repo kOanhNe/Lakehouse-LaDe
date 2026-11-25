@@ -2,7 +2,6 @@
 import argparse
 import hashlib
 import json
-import sys
 from pathlib import Path
 
 import numpy as np
@@ -11,9 +10,8 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT/'notebooks'))
-from delivery_data import read_source, annotate, missing, POLICY_VERSION
+from lakehouse import PROJECT_ROOT as ROOT
+from lakehouse.delivery_data import read_source, annotate, missing, POLICY_VERSION
 
 
 def run(source, output, reference=None):

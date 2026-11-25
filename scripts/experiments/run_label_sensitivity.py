@@ -3,18 +3,17 @@
 Mục đích: cho thấy bộ lọc loại bao nhiêu cặp và sai số thay đổi thế nào khi nới/siết ngưỡng.
     python scripts/run_label_sensitivity.py
 """
-import argparse, sys
+import argparse
 from pathlib import Path
 import pandas as pd
 
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT))
-from src.eta import paper_protocol as pp
+from lakehouse import PROJECT_ROOT as ROOT
+from eta import paper_protocol as pp
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--source", type=Path, default=ROOT / "data" / "delivery_yt.csv")
-    ap.add_argument("--output", type=Path, default=ROOT / "reports" / "eta_paper_label_sensitivity.csv")
+    ap.add_argument("--output", type=Path, default=ROOT / "reports" / "eta" / "eta_paper_label_sensitivity.csv")
     a = ap.parse_args()
     raw = pd.read_csv(a.source, dtype={"ds": str, "courier_id": str})
     rows = []

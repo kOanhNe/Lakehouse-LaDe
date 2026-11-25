@@ -9,6 +9,7 @@ logs/
 **/__pycache__/
 *.pyc
 .venv/
+*.egg-info/
 .env
 *.env
 # Large local distributions and optional dependencies
@@ -18,4 +19,5 @@ logs/
 docker/jars/aws-java-sdk-bundle-*.jar
 .DS_Store
 session_*.txt
-reports/eta_predictions*.csv
+/reports/**/eta_predictions*.csv
+/reports/data/row_quality.csv.gz

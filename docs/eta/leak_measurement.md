@@ -1,6 +1,6 @@
 # Đo mức độ leakage bằng thực nghiệm
 
-Các phép đo dùng `data/delivery_yt.csv` với SHA-256 trong `config/prereg.yaml` và seed 42. Mục 1 và 2 dùng adapter LightGBM của Protocol P. Mục 3 dùng cấu hình LightGBM riêng trong script. Protocol P gốc tái lập MAE 20,67 phút đã lưu cho seed 42. [Kiểm kê leakage](leak_inventory.md) · [Metric Protocol P](../reports/eta_paper_metrics.csv)
+Các phép đo dùng `data/delivery_yt.csv` với SHA-256 trong `config/prereg.yaml` và seed 42. Mục 1 và 2 dùng adapter LightGBM của Protocol P. Mục 3 dùng cấu hình LightGBM riêng trong script. Protocol P gốc tái lập MAE 20,67 phút đã lưu cho seed 42. [Kiểm kê leakage](leak_inventory.md) · [Metric Protocol P](../../reports/eta/eta_paper_metrics.csv)
 
 ## 1. Ba feature rò rỉ của Protocol P (đối chứng ghép cặp)
 
@@ -21,11 +21,11 @@ Các phép đo dùng `data/delivery_yt.csv` với SHA-256 trong `config/prereg.y
 | median (train) | 28,51 | 33,18 | 36,57 | 54,31 |
 | SPEED, `spd` cả file / `spd_pit` | 33,63 / 33,71 | 44,55 / 48,49 | 40,66 / 41,02 | 54,33 / 54,72 |
 
-Trên cùng tập test, thay đồng thời ba feature làm MAE tăng 0,28 phút với seed 42. LightGBM vẫn có MAE thấp hơn median và SPEED trong phép đối chứng này. [CSV kết quả](../reports/eta_paper_pit_metrics.csv)
+Trên cùng tập test, thay đồng thời ba feature làm MAE tăng 0,28 phút với seed 42. LightGBM vẫn có MAE thấp hơn median và SPEED trong phép đối chứng này. [CSV kết quả](../../reports/eta/eta_paper_pit_metrics.csv)
 
 ## 2. Cohort chọn theo nhãn (0 < nhãn ≤ 120 và ít nhất hai đơn)
 
-Protocol P dùng nhãn đã quan sát sau khi giao để giữ các cặp có thời gian còn lại tối đa 120 phút. `scripts/run_paper_protocol_cohort.py` giữ cùng bộ feature đã thay ở mục 1 và so sánh các trường hợp có hoặc bỏ ngưỡng. Khi bỏ ngưỡng, điều kiện tối thiểu hai ứng viên và luật loại cửa sổ test có thể thay đổi cả tập truy vấn. B và C dùng chung tập test.
+Protocol P dùng nhãn đã quan sát sau khi giao để giữ các cặp có thời gian còn lại tối đa 120 phút. `scripts/experiments/run_paper_protocol.py` giữ cùng bộ feature đã thay ở mục 1 và so sánh các trường hợp có hoặc bỏ ngưỡng. Khi bỏ ngưỡng, điều kiện tối thiểu hai ứng viên và luật loại cửa sổ test có thể thay đổi cả tập truy vấn. B và C dùng chung tập test.
 
 | Trường hợp | n test | MAE (phút) | MAE của median (phút) |
 | --- | ---: | ---: | ---: |
@@ -34,11 +34,11 @@ Protocol P dùng nhãn đã quan sát sau khi giao để giữ các cặp có th
 | C. train và test trên tập bỏ ngưỡng 120 | 215.319 | 60,17 | 76,22 |
 | D. như C, chỉ chấm cặp test có nhãn ≤ 120 | 139.657 | 30,54 | — |
 
-Trong tập test bỏ ngưỡng 120, 64,9% cặp có nhãn ≤ 120 phút và phân vị 90% của nhãn là 258 phút. MAE 20,67 phút ứng với cohort đã lọc của Protocol P. MAE 60,17 phút của C là kết quả ngoại tuyến trên tập bỏ ngưỡng trong các quỹ đạo và cửa sổ được lấy mẫu. LightGBM giảm MAE khoảng 21% so với median trên tập của C. Báo cáo sai số triển khai cần đánh giá riêng với tập ứng viên và feature được dựng hoàn toàn từ sự kiện đã quan sát. [CSV kết quả](../reports/eta_paper_cohort_metrics.csv)
+Trong tập test bỏ ngưỡng 120, 64,9% cặp có nhãn ≤ 120 phút và phân vị 90% của nhãn là 258 phút. MAE 20,67 phút ứng với cohort đã lọc của Protocol P. MAE 60,17 phút của C là kết quả ngoại tuyến trên tập bỏ ngưỡng trong các quỹ đạo và cửa sổ được lấy mẫu. LightGBM giảm MAE khoảng 21% so với median trên tập của C. Báo cáo sai số triển khai cần đánh giá riêng với tập ứng viên và feature được dựng hoàn toàn từ sự kiện đã quan sát. [CSV kết quả](../../reports/eta/eta_paper_cohort_metrics.csv)
 
 ## 3. Baseline Spark: `courier_train_avg_min`
 
-`steps._train_baseline` tính trung bình thời gian giao theo shipper trên toàn tập train rồi gán lại cho cả các dòng train, nên nhãn của một dòng nằm trong feature của chính nó. `scripts/check_courier_avg_leak.py` dựng lại cohort Yantai (train 165.222, test 35.778, MAE median 127,59 phút, khớp Spark) và dùng LightGBM làm phép xấp xỉ.
+`steps._train_baseline` tính trung bình thời gian giao theo shipper trên toàn tập train rồi gán lại cho cả các dòng train, nên nhãn của một dòng nằm trong feature của chính nó. `scripts/checks/check_courier_avg_leak.py` dựng lại cohort Yantai (train 165.222, test 35.778, MAE median 127,59 phút, khớp Spark) và dùng LightGBM làm phép xấp xỉ.
 
 | Cách tính feature với LightGBM | MAE (phút) | RMSE (phút) |
 | --- | ---: | ---: |
@@ -58,8 +58,8 @@ Trong phép xấp xỉ, biến thể dùng lịch sử giảm MAE từ 97,26 xu�
 ## Chạy lại
 
 ~~~bash
-python scripts/run_paper_protocol_pit.py --seeds 42 --output reports/eta_paper_pit_metrics.csv
-python scripts/run_paper_protocol_cohort.py
-python scripts/check_courier_avg_leak.py
+python -m scripts.experiments.run_paper_protocol --variant pit --seeds 42 --output reports/eta/eta_paper_pit_metrics.csv
+python -m scripts.experiments.run_paper_protocol --variant cohort
+python -m scripts.checks.check_courier_avg_leak
 pytest tests/test_paper_protocol_pit.py
 ~~~

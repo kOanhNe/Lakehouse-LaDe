@@ -10,7 +10,7 @@ lại đúng cohort ML (train/test khớp số dòng của Spark) và so sánh b
 
 Đây là xấp xỉ bằng pandas + LightGBM, không phải Spark GBT, nên chỉ so sánh tương đối giữa 3 dòng.
 
-    python scripts/check_courier_avg_leak.py --source data/delivery_yt.csv
+    python -m scripts.checks.check_courier_avg_leak --source data/delivery_yt.csv
 """
 import argparse, warnings
 from pathlib import Path
@@ -18,7 +18,7 @@ import lightgbm as lgb
 import numpy as np
 import pandas as pd
 
-ROOT = Path(__file__).resolve().parents[1]
+from lakehouse import PROJECT_ROOT as ROOT
 Y = "delivery_minutes"
 BASE = ["distance_km", "accept_hour", "dow", "order_rank", "cum_avg_dist", "aoi_type", "region_id"]
 

@@ -3,7 +3,7 @@
 Chạy từ thư mục gốc:
 
 ```powershell
-python scripts/profile_delivery.py --source data/delivery_yt.csv --output reports/data
+python -m scripts.checks.profile_delivery --source data/delivery_yt.csv --output reports/data
 ```
 
 Script đọc toàn bộ 206.431 dòng ở dạng chuỗi, giữ nguyên raw input và tạo các bảng
@@ -27,3 +27,11 @@ Audit hiện tại trên file local có 206.431 dòng: 369 dòng có thời lư�
 2.650 dòng dài hơn 24 giờ, 2.424 dòng có accept GPS không hợp lệ và 122 dòng có
 khoảng cách stop–accept GPS lớn hơn 50 km. Vì vậy các ngưỡng này phải được báo cáo
 như policy tạo cohort, không được gọi là quy luật tự nhiên của dữ liệu.
+
+## Nguồn LaDe
+
+- [Data card LaDe-D cho dữ liệu giao hàng](https://huggingface.co/datasets/Cainiao-AI/LaDe-D)
+- [Data card LaDe và các bài toán benchmark](https://huggingface.co/datasets/Cainiao-AI/LaDe)
+- [Mã benchmark của tác giả](https://github.com/wenhaomin/LaDe)
+- [Website LaDe](https://cainiaotechai.github.io/LaDe-website/)
+- [Bài báo LaDe](https://arxiv.org/abs/2306.10675)

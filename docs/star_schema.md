@@ -1,5 +1,16 @@
 # Star schema
 
+```mermaid
+flowchart LR
+    courier["dim_courier_silver (SCD2)"] --> fact["fact_delivery_task_gold"]
+    region["dim_region_gold"] --> fact
+    aoi["dim_aoi_gold"] --> fact
+    date["dim_date_gold"] -->|ngày nhận và ngày giao| fact
+    hour["dim_hour_gold"] -->|giờ nhận| fact
+    fact -.->|truy vết qua order_id| eta["eta_safe_gold"]
+    eta --> scores["eta_safe_metrics_gold"]
+```
+
 Fact trung tâm `fact_delivery_task_gold` nối với **5 dimension** bằng khóa thay thế (surrogate key):
 
 | Dimension | Khóa | Thuộc tính | Nối với fact bằng | Ghi chú |
@@ -21,7 +32,8 @@ Dữ liệu cho thấy 350 AOI xuất hiện ở hơn một region (quan hệ kh
 ## Các fact khác (fact constellation)
 - `eta_safe_gold`: grain một đơn tại một thời điểm truy vấn, khóa `order_id + query_ts`.
 - `eta_paper_gold` (Protocol P): mỗi dòng là một cặp truy vấn và đơn còn cầm trong một cửa sổ. `query_id` gom các dòng của cùng truy vấn và có thể lặp qua các cửa sổ chồng lấn.
-- `eta_safe_metrics_gold`, `eta_paper_metrics_gold`: kết quả đo theo lần chạy, mô hình, seed.
+- `eta_safe_metrics_gold` lưu số mẫu, MAE và RMSE cho mỗi tổ hợp `run_id + protocol + split + seed`.
+- `eta_paper_metrics_gold` lưu giá trị của từng metric theo lần chạy, mô hình và seed.
 
 ## Bảng chất lượng
 `delivery_rejected` giữ các dòng bị loại ở Silver cùng `reject_reason`. Phục vụ audit, không tham gia fact.

@@ -6,15 +6,13 @@ only after the caller has created ``config/freeze-v1.yaml``.
 import argparse
 from pathlib import Path
 import json
-import sys
 
 import pandas as pd
 
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT))
+from lakehouse import PROJECT_ROOT as ROOT
 
-from src.eta.dataset import build_eta_samples, read_lade_csv
-from src.eta.model import evaluate, fit_lightgbm
+from eta.dataset import build_eta_samples, read_lade_csv
+from eta.model import evaluate, fit_lightgbm
 
 
 FEATURES = ["pending_order_count", "completed_order_count", "courier_avg_min",
@@ -45,9 +43,9 @@ def run(source: Path, protocol: str, output: Path, seed: int = 42):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--source", type=Path, default=Path("data/delivery_yt.csv"))
+    parser.add_argument("--source", type=Path, default=ROOT / "data" / "delivery_yt.csv")
     parser.add_argument("--protocol", choices=["A-lite", "B"], default="B")
-    parser.add_argument("--output", type=Path, default=Path("reports/eta_predictions.csv"))
+    parser.add_argument("--output", type=Path, default=ROOT / "reports" / "eta" / "eta_predictions.csv")
     parser.add_argument("--seed", type=int, default=42)
     args = parser.parse_args()
     run(args.source, args.protocol, args.output, args.seed)
