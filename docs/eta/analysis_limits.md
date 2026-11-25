@@ -23,7 +23,7 @@ Chỉ 3/205 shipper (1,5%) đổi khu vực chính, với 21 lần đổi; nếu
 ## 4. Phạm vi so sánh kết quả ETA
 
 - Protocol P là bài toán tái lập ngoại tuyến để đối chiếu mô tả với bài báo. Tốc độ shipper, tập ứng viên và cửa sổ có phụ thuộc dữ liệu tương lai. Xem [audit Protocol P](leak_inventory.md#audit-protocol-p).
-- Protocol B là bài toán phụ tại lúc nhận đơn, có kiểm soát leakage theo contract. Phép so với A-lite dùng cùng tập truy vấn.
+- Protocol B là bài toán dùng để đánh giá ETA vận hành tại lúc nhận đơn. Phép so với A-lite là nghiên cứu leakage trước đây. Benchmark mới so LightGBM và Spark trên cùng đơn lúc nhận.
 - Spark LR/GBT là baseline thời lượng giao hàng từ lúc nhận đơn, đánh giá trên cohort riêng có GPS hợp lệ, khoảng cách tối đa 50 km và thời lượng tối đa 24 giờ.
 
 MAE khoảng 20,7 phút mô tả LightGBM trên tập test của Protocol P. Mỗi phép xếp hạng dùng các mô hình có cùng thời điểm truy vấn, nhãn và tập đánh giá. Xem [bảng vai trò trong README](../../README.md#1-bài-toán).
@@ -82,11 +82,27 @@ hành cần ghi dự báo tại từng lần nhận đơn và so với kết qu�
 
 Repo hiện huấn luyện và chấm theo batch. Dashboard đọc metric đã ghi.
 Khi bỏ thời điểm giao và nhãn của đơn `2641862`, `build_eta_samples()`
-bỏ đơn đó khỏi bảng mẫu. Đường dự đoán lúc nhận cần dựng đặc trưng cho
-đơn còn mở và nạp lại mô hình cùng giá trị điền thiếu đã chốt. Phép đo
-trên Yantai chỉ dùng đơn có nhãn giao hàng từ năm 2022. [Builder mẫu](../../src/eta/dataset.py) · [Bước batch Protocol B](../../notebooks/06_eta_accept.ipynb)
+bỏ đơn đó khỏi bảng mẫu có nhãn. Builder sự kiện mới dựng được đặc trưng
+cho đơn còn mở. Dự đoán thực tế khi nhận đơn cần lưu và nạp lại mô hình
+cùng median đã chốt, rồi ghi dự báo trước khi biết kết quả giao. Phép đo
+trên Yantai chỉ dùng đơn có nhãn giao hàng từ năm 2022. [Đặc trưng theo sự kiện](../../src/eta/features.py) · [Bước batch Protocol B](../../notebooks/06_eta_accept.ipynb)
 
 Một hướng để cải thiện ETA vận hành là đo thời gian theo tuyến đường
 và thêm trạng thái hàng chờ đã quan sát. DeepETA của Uber dùng dữ liệu
 tuyến đường và giao thông thời gian thực rồi dùng ML hiệu chỉnh.
 [Thiết kế DeepETA](https://www.uber.com/us/en/blog/deepeta-how-uber-predicts-arrival-times/)
+
+## 6. Giới hạn của bản hàng chờ và lịch sử
+
+Điểm rolling-origin của bản mới là điểm phát triển trên 24.647 đơn Yantai.
+Các dự đoán trong mỗi cửa sổ đi sau tập fit và tập hiệu chỉnh. Holdout
+đóng băng ở mục 5 tiếp tục là kết quả của cấu hình lịch sử đã chọn.
+Phép đo giữ cùng tham số LightGBM để so bộ đặc trưng. Danh sách
+`candidates` trong `prereg.yaml` hiện có một cấu hình.
+
+Bản mới đạt ACC@30 **31,88%**, tức khoảng **68 trên 100 đơn** lệch quá
+30 phút. P90 sai số tuyệt đối khoảng **222 phút**. Mức này còn xa yêu cầu
+hứa một ETA trong vòng ±30 phút cho khách. Dữ liệu Yantai thiếu sự kiện
+hủy đơn, nên đơn đã nhận có thể còn trong hàng chờ khi thiếu lần giao hợp
+lệ. Đo độ phủ phân vị và thử nghiệm dự báo có dấu thời gian lúc nhận là
+các phép đánh giá riêng. [Chi tiết mẫu và kết quả](training_data_lineage.md#35-so-sánh-rolling-origin-trên-cùng-mã-đơn)

@@ -36,7 +36,7 @@ target_remaining_minutes = delivery_ts - query_ts
 | Bài toán | Vai trò | Cách diễn giải |
 |---|---|---|
 | Protocol P | ETA chính, tái lập LaDe | Tại lúc shipper vừa giao xong một đơn, dự đoán thời gian còn lại của các đơn đang cầm. Đánh giá ngoại tuyến trên cohort nhãn 1–120 phút, với các giới hạn leakage đã công bố trong [audit Protocol P](docs/eta/leak_inventory.md#audit-protocol-p). |
-| Protocol B (ETA-safe) | Bài toán phụ tại lúc nhận đơn | Dự đoán thời gian giao ngay khi nhận, với kiểm soát leakage theo contract. So với A-lite trên cùng tập truy vấn để đo ảnh hưởng của leakage. |
+| Protocol B | Bài toán chính để đánh giá ETA vận hành | Dự đoán thời gian giao ngay khi nhận. Benchmark rolling-origin chấm trên cùng mã đơn và cùng cửa sổ cho các mô hình tại thời điểm nhận. |
 | Spark LR/GBT | Baseline thời lượng giao hàng | Dự đoán `delivery_minutes` từ lúc nhận đơn trên cohort Spark có GPS hợp lệ, khoảng cách tối đa 50 km và thời lượng tối đa 24 giờ. Đọc MAE trong cohort của baseline. |
 
 MAE khoảng **20,7 phút** của LightGBM thuộc Protocol P trên Yantai, trung bình qua ba seed. Chỉ xếp hạng các mô hình trong cùng bài toán và cùng tập đánh giá. Protocol B và Spark LR/GBT truy vấn lúc nhận đơn, còn Protocol P truy vấn sau một lần giao xong và dùng tập đánh giá riêng. [Metric Protocol P đã lưu](reports/eta/eta_paper_metrics.csv)
@@ -80,7 +80,7 @@ Silver Delta: ép kiểu + timestamp + quality flags
     +--> dim_courier_silver (SCD2)
     +--> dim_region_gold / dim_aoi_gold / dim_date_gold / dim_hour_gold
     +--> fact_delivery_task_gold
-    +--> eta_safe_gold       (Protocol B, bài toán phụ)
+    +--> eta_safe_gold       (Protocol B, ETA lúc nhận)
     +--> eta_paper_gold      (Protocol P, bài toán chính)
     |
     v
@@ -135,7 +135,9 @@ Quy trình hiện tại:
 
 Kết quả ghi vào `eta_paper_gold` và `eta_paper_metrics_gold`. Đây là kết quả tái lập ngoại tuyến trên cohort 1–120 phút. `spd` dùng cả file, còn `ntodo` và `rank` phụ thuộc nhãn tương lai của các đơn trong cửa sổ. Xem [audit Protocol P](docs/eta/leak_inventory.md#audit-protocol-p) để biết phạm vi diễn giải.
 
-Protocol B ghi vào `eta_safe_gold` và `eta_safe_metrics_gold`. Kiểm soát trường đầu vào theo thời điểm biết trong `config/schema.yaml` và giới hạn lịch sử shipper tới thời điểm truy vấn.
+Protocol B ghi vào `eta_safe_gold` và `eta_safe_metrics_gold`. Prefect dùng B + AOI + GPS với hàng chờ và lịch sử gần đây. Bước này chọn nhãn fit và hiệu chỉnh theo thời điểm đã giao rồi công bố điểm trên cửa sổ validation cuối. Dashboard ghi mã biến thể, ngày chấm, MAE, WAPE và ACC@30/60. [Notebook tính tay](notebooks/06_eta_accept.ipynb)
+
+Trên 24.647 đơn validation Yantai ở ba cửa sổ liên tiếp, hàng chờ và lịch sử gần đây đưa MAE trung bình qua ba seed từ **109,52** xuống **104,16 phút**. ACC@30 là **31,88%**. Đây là đánh giá ngoại tuyến trên các đơn được lấy mẫu. [Thiết kế và kết quả](docs/eta/training_data_lineage.md#35-so-sánh-rolling-origin-trên-cùng-mã-đơn)
 
 Cách biến CSV Yantai thành các bảng và tập huấn luyện của từng nhánh nằm trong tài liệu nguồn dữ liệu. [Nguồn dữ liệu huấn luyện](docs/eta/training_data_lineage.md)
 

@@ -11,22 +11,45 @@ def regression_metrics(y_true, y_pred) -> dict:
     return {"n": int(len(error)), "mae": float(np.mean(np.abs(error))), "rmse": float(np.sqrt(np.mean(error ** 2)))}
 
 
+def accept_eta_metrics(y_true, y_pred) -> dict:
+    actual = np.asarray(y_true, dtype=float)
+    prediction = np.maximum(np.asarray(y_pred, dtype=float), 0)
+    error = np.abs(actual - prediction)
+    total = np.abs(actual).sum()
+    return {
+        **regression_metrics(actual, prediction),
+        "acc20_pct": float(100 * np.mean(error <= 20)),
+        "acc30_pct": float(100 * np.mean(error <= 30)),
+        "acc60_pct": float(100 * np.mean(error <= 60)),
+        "p90_abs_error_min": float(np.quantile(error, 0.9)),
+        "wape_pct": float(100 * error.sum() / total) if total > 0 else float("nan"),
+    }
+
+
 def paired_cluster_bootstrap(frame: pd.DataFrame, truth: str, left: str, right: str, cluster: str,
                              n_boot: int = 2000, seed: int = 42) -> dict:
     required = {truth, left, right, cluster}
     missing = required - set(frame.columns)
     if missing:
         raise ValueError(f"Missing bootstrap columns: {sorted(missing)}")
-    groups = [group for _, group in frame.groupby(cluster, sort=True)]
-    if len(groups) < 2:
+    if frame[cluster].isna().any():
+        raise ValueError("Every paired observation needs a cluster")
+    y = frame[truth].to_numpy(float)
+    difference = np.abs(frame[left].to_numpy(float) - y) - np.abs(frame[right].to_numpy(float) - y)
+    if not np.isfinite(difference).all():
+        raise ValueError("Paired outcomes and predictions must be finite")
+    by_cluster = pd.Series(difference, index=frame.index).groupby(frame[cluster], sort=True).agg(["sum", "size"])
+    clusters = len(by_cluster)
+    if clusters < 2:
         raise ValueError("At least two clusters are required")
+    totals = by_cluster["sum"].to_numpy()
+    sizes = by_cluster["size"].to_numpy()
     rng = np.random.default_rng(seed)
     estimates = np.empty(n_boot)
     for i in range(n_boot):
-        sample = [groups[j] for j in rng.integers(0, len(groups), len(groups))]
-        joined = pd.concat(sample, ignore_index=True)
-        y = joined[truth].to_numpy(float)
-        estimates[i] = np.mean(np.abs(joined[left].to_numpy(float) - y)) - np.mean(np.abs(joined[right].to_numpy(float) - y))
-    return {"clusters": len(groups), "pairs": int(len(frame)), "difference_mae_left_minus_right": float(np.mean(estimates)),
+        sample = rng.integers(0, clusters, clusters)
+        estimates[i] = totals[sample].sum() / sizes[sample].sum()
+    return {"clusters": clusters, "pairs": int(len(frame)),
+            "difference_mae_left_minus_right": float(totals.sum() / sizes.sum()),
             "ci95_low": float(np.quantile(estimates, .025)), "ci95_high": float(np.quantile(estimates, .975)),
             "seed": seed, "n_boot": n_boot}

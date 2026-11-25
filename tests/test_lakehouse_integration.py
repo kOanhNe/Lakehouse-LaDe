@@ -107,6 +107,8 @@ def test_prefect_reruns_after_partial_serving_failure(isolated_warehouse, tmp_pa
     monkeypatch.setattr(flow, "t_serve", flow.t_serve.with_options(retries=0))
 
     def validate(result):
+        from eta.dataset import FLOW_ACCEPT_VARIANT
+
         bronze, silver, rejected, history, fact = [
             spark.read.format("delta").load(path)
             for path in (steps.BRONZE, steps.SILVER, steps.REJECTED, steps.DIM, steps.FACT)
@@ -125,7 +127,12 @@ def test_prefect_reruns_after_partial_serving_failure(isolated_warehouse, tmp_pa
         assert set(tables) == set(TABLES)
         assert tables["agg_overview"].total_orders.iloc[0] == fact.count()
         assert set(tables["eta_paper_metrics"].run_id) == {result["run_id"]}
-        assert set(tables["eta_safe_metrics"].run_id) == {result["run_id"]}
+        eta_metrics = tables["eta_safe_metrics"]
+        assert set(eta_metrics.run_id) == {result["run_id"]}
+        assert set(eta_metrics.variant) == {FLOW_ACCEPT_VARIANT}
+        assert set(eta_metrics.split) == {"validation"}
+        assert set(eta_metrics.evaluation_scope) == {"rolling_validation"}
+        assert set(eta_metrics.score_start) == {result["eta_safe"]["score_start"]}
         return [r.asDict() for r in fact.select("order_id", "courier_sk", "region_sk", "aoi_sk").orderBy("order_id").collect()]
 
     first = flow.delivery_pipeline()

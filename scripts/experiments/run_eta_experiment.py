@@ -11,13 +11,8 @@ import pandas as pd
 
 from lakehouse import PROJECT_ROOT as ROOT
 
-from eta.dataset import build_eta_samples, read_lade_csv
+from eta.dataset import B_FEATURES as FEATURES, build_eta_samples, read_lade_csv
 from eta.model import evaluate, fit_lightgbm
-
-
-FEATURES = ["pending_order_count", "completed_order_count", "courier_avg_min",
-            "distance_to_last_delivery_km", "candidate_lat", "candidate_lng",
-            "candidate_aoi_type", "candidate_region_id", "accept_hour"]
 
 
 def run(source: Path, protocol: str, output: Path, seed: int = 42):

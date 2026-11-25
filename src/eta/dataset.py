@@ -10,9 +10,47 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import yaml
 
-from .features import load_schema, role_columns
+from lakehouse import PROJECT_ROOT
+
+from .features import (
+    acceptance_distance, build_observed_accept_features, haversine_km, load_schema, role_columns,
+)
 from .splits import assign_time_split, query_grid, time_boundaries
+
+TARGET = "target_remaining_minutes"
+B_FEATURES = [
+    "pending_order_count", "completed_order_count", "courier_avg_min",
+    "distance_to_last_delivery_km", "candidate_lat", "candidate_lng",
+    "candidate_aoi_type", "candidate_region_id", "accept_hour",
+]
+AOI_FEATURES = ["aoi_past_avg_min", "aoi_past_count"]
+REGISTERED_ACCEPT_VARIANTS = {
+    "protocol_b": B_FEATURES,
+    "protocol_b_aoi": [*B_FEATURES, *AOI_FEATURES],
+    "protocol_b_aoi_gps": [*B_FEATURES, *AOI_FEATURES, "accept_to_stop_km"],
+}
+OBSERVED_BASE_VARIANT = "protocol_b_observed"
+QUEUE_HISTORY_VARIANT = "protocol_b_queue_history"
+BATCH_VARIANT = "protocol_b_queue_history_batch"
+QUEUE_HISTORY_FEATURES = [
+    "courier_accepted_today", "courier_delivered_today", "courier_idle_min",
+    "aoi_recent_count", "aoi_recent_avg_min", "region_hour_recent_count",
+    "region_hour_recent_avg_min", "courier_recent_avg_min", "courier_recent_gap_avg_min",
+]
+OBSERVED_ACCEPT_VARIANTS = {
+    OBSERVED_BASE_VARIANT: REGISTERED_ACCEPT_VARIANTS["protocol_b_aoi_gps"],
+    QUEUE_HISTORY_VARIANT: [
+        *REGISTERED_ACCEPT_VARIANTS["protocol_b_aoi_gps"], *QUEUE_HISTORY_FEATURES,
+    ],
+    BATCH_VARIANT: [
+        *REGISTERED_ACCEPT_VARIANTS["protocol_b_aoi_gps"], *QUEUE_HISTORY_FEATURES,
+        "batch_size", "batch_distance_rank",
+    ],
+}
+ACCEPT_VARIANTS = {**REGISTERED_ACCEPT_VARIANTS, **OBSERVED_ACCEPT_VARIANTS}
+FLOW_ACCEPT_VARIANT = QUEUE_HISTORY_VARIANT
 
 SOURCE_COLUMNS = [
     "order_id", "region_id", "city", "courier_id", "lng", "lat", "aoi_id", "aoi_type",
@@ -42,12 +80,6 @@ def parse_lade_frame(raw: pd.DataFrame, year: int = 2022) -> pd.DataFrame:
     return out
 
 
-def _haversine(lat1, lon1, lat2, lon2):
-    lat1, lon1, lat2, lon2 = map(np.radians, [lat1, lon1, lat2, lon2])
-    a = np.sin((lat2 - lat1) / 2) ** 2 + np.cos(lat1) * np.cos(lat2) * np.sin((lon2 - lon1) / 2) ** 2
-    return 2 * 6371.0088 * np.arcsin(np.sqrt(np.clip(a, 0, 1)))
-
-
 def build_accept_time_features(events: pd.DataFrame) -> pd.DataFrame:
     """Build AOI history and distance to destination at acceptance, indexed by order ID."""
     schema = load_schema()
@@ -71,18 +103,7 @@ def build_accept_time_features(events: pd.DataFrame) -> pd.DataFrame:
         past_averages[positions] = averages
 
     features = pd.DataFrame({"aoi_past_count": past_counts, "aoi_past_avg_min": past_averages}, index=candidates.index)
-    valid_gps = (
-        candidates.accept_gps_ts.le(candidates.accept_ts)
-        & candidates.accept_gps_lat.between(-90, 90)
-        & candidates.accept_gps_lng.between(-180, 180)
-        & ~(candidates.accept_gps_lat.eq(0) & candidates.accept_gps_lng.eq(0))
-        & candidates.lat.between(-90, 90)
-        & candidates.lng.between(-180, 180)
-        & ~(candidates.lat.eq(0) & candidates.lng.eq(0))
-    )
-    features["accept_to_stop_km"] = _haversine(
-        candidates.accept_gps_lat, candidates.accept_gps_lng, candidates.lat, candidates.lng,
-    ).where(valid_gps)
+    features["accept_to_stop_km"] = acceptance_distance(candidates)
     return features
 
 
@@ -135,7 +156,7 @@ def build_eta_samples(events: pd.DataFrame, protocol: str = "B", max_per_courier
         last_lng = np.full(len(group), np.nan)
         last_lat[has_last] = group.delivery_gps_lat.to_numpy(float)[last_pos[has_last]]
         last_lng[has_last] = group.delivery_gps_lng.to_numpy(float)[last_pos[has_last]]
-        distance = _haversine(group.lat.to_numpy(float), group.lng.to_numpy(float), last_lat, last_lng)
+        distance = haversine_km(group.lat.to_numpy(float), group.lng.to_numpy(float), last_lat, last_lng)
         distance[~has_last] = np.nan
         out = pd.DataFrame({
             "order_id": group.order_id.astype(str), "courier_id": courier_id,
@@ -159,3 +180,75 @@ def build_eta_samples(events: pd.DataFrame, protocol: str = "B", max_per_courier
     if include_aoi_gps:
         result = result.join(build_accept_time_features(events), on="order_id", validate="one_to_one")
     return result
+
+
+def load_accept_prereg() -> dict:
+    with (PROJECT_ROOT / "config" / "prereg.yaml").open(encoding="utf-8") as settings:
+        return yaml.safe_load(settings)
+
+
+def build_protocol_b_samples(events: pd.DataFrame, data_config: dict, *, observed: bool = False) -> pd.DataFrame:
+    """Share the registered query IDs between the notebook, flow and benchmark."""
+    samples = build_eta_samples(
+        events, "B", data_config["max_queries_per_courier_day"], data_config["query_seed"],
+        include_aoi_gps=not observed,
+    )
+    return attach_observed_context(samples, events) if observed else samples
+
+
+def attach_observed_context(samples: pd.DataFrame, events: pd.DataFrame) -> pd.DataFrame:
+    features = build_observed_accept_features(events)
+    return samples.drop(columns=samples.columns.intersection(features.columns)).join(
+        features, on="order_id", validate="one_to_one",
+    )
+
+
+def labels_available_before(samples: pd.DataFrame, orders: pd.DataFrame, cutoff: pd.Timestamp) -> pd.DataFrame:
+    """Select rows whose delivery label was observable before the fit cutoff."""
+    return samples.loc[samples.order_id.map(orders.delivery_ts).lt(cutoff)]
+
+
+def validation_rows(samples: pd.DataFrame, orders: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    boundaries = time_boundaries(samples, "query_ts")
+    train = labels_available_before(samples.loc[samples.split.eq("train")], orders, boundaries.train_end)
+    return train, samples.loc[samples.split.eq("validation")]
+
+
+def rolling_origin_rows(samples: pd.DataFrame, orders: pd.DataFrame, *, last_only: bool = False):
+    """Three successive score windows inside development, with separate calibration."""
+    days = samples.query_ts.dt.normalize()
+    development_days = pd.DatetimeIndex(days[samples.split.eq("validation")].unique()).sort_values()
+    if len(development_days) == 0:
+        raise ValueError("No development dates for accept-time ETA")
+    windows = np.array_split(development_days.to_numpy(), min(3, len(development_days)))
+    if last_only:
+        windows = windows[-1:]
+    for window in windows:
+        cutoff = pd.Timestamp(window[0])
+        earlier_days = pd.DatetimeIndex(days[days.lt(cutoff)].unique()).sort_values()
+        if len(earlier_days) < 2:
+            raise ValueError("Rolling-origin evaluation requires two earlier dates for fit and calibration")
+        n_calibration_days = min(14, max(1, len(earlier_days) // 5))
+        calibration_start = earlier_days[-n_calibration_days]
+        train = labels_available_before(samples.loc[days.lt(calibration_start)], orders, calibration_start)
+        calibration = labels_available_before(
+            samples.loc[days.ge(calibration_start) & days.lt(cutoff)], orders, cutoff,
+        )
+        if train.empty or calibration.empty:
+            raise ValueError(f"No observed fit or calibration labels before {cutoff.date()}")
+        yield train, calibration, samples.loc[days.isin(window)]
+
+
+def flow_evaluation_rows(samples: pd.DataFrame, orders: pd.DataFrame):
+    """Publish the last development window, with calibration for short datasets."""
+    earlier_dates = samples.loc[samples.split.eq("train"), "query_ts"].dt.normalize().nunique()
+    if earlier_dates >= 2:
+        train, calibration, scored = next(rolling_origin_rows(samples, orders, last_only=True))
+        return train, calibration, scored, "rolling_validation"
+
+    train, validation = validation_rows(samples, orders)
+    holdout_start = time_boundaries(samples, "query_ts").validation_end
+    calibration = labels_available_before(validation, orders, holdout_start)
+    if train.empty or calibration.empty:
+        raise ValueError("No observed fit or calibration labels for accept-time ETA")
+    return train, calibration, calibration, "calibration"

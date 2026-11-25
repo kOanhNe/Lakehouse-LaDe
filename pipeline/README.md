@@ -3,6 +3,10 @@
 `flow.py` điều phối Bronze, Silver, courier SCD2, star dimensions, ETA-safe,
 Protocol P, fact/baseline và serving MySQL. Khi khởi động, flow nạp các cell
 `pipeline-step` từ notebook vào bộ nhớ. Mỗi task gọi hàm tương ứng.
+
+Bước ETA tại lúc nhận công bố mô hình B + AOI + GPS với hàng chờ và lịch sử
+gần đây trên cửa sổ validation cuối. Dashboard đọc mã mô hình, seed và mốc
+chấm trong bảng metric. [Cách dựng mẫu và chọn nhãn](../docs/eta/training_data_lineage.md#35-so-sánh-rolling-origin-trên-cùng-mã-đơn)
 Lưu notebook trước khi khởi động flow.
 [Notebook chứa thân hàm](../notebooks/README.md#sửa-và-chạy-các-bước-notebook)
 

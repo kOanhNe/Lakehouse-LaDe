@@ -12,7 +12,7 @@
 | [03 · Năm dimension](03_dim_courier_silver.ipynb) | `delivery_silver` | Lịch sử shipper SCD2 rồi đến vùng, AOI, ngày và giờ. |
 | [04 · Fact và Spark LR/GBT](04_fact.ipynb) | Silver và năm dimension | Ghép fact, lọc cohort GPS/24 giờ/50 km và điểm riêng của baseline Spark. |
 | [05 · Serving](05_serving.ipynb) | Fact, dự đoán Spark, ngưỡng đơn trễ và dimension | Bảng MySQL và số dòng đã đối soát. |
-| [06 · ETA lúc nhận](06_eta_accept.ipynb) | CSV để trình bày. Bronze khi chạy B đăng ký qua Prefect. | Mẫu theo thời điểm nhận, chia tập, dự đoán tính tay và điểm validation B + AOI + GPS. |
+| [06 · ETA lúc nhận](06_eta_accept.ipynb) | CSV để trình bày. Bronze khi chạy qua Prefect. | Mẫu tại lúc nhận, hàng chờ và lịch sử gần đây, phép tính tay và điểm trên cửa sổ validation cuối. |
 | [07 · ETA còn lại](07_eta_paper.ipynb) | Bảy cột của Bronze | Làm sạch quỹ đạo, cohort 1–120 phút và kết quả tái lập Protocol P. |
 
 Prefect chạy Bronze → Silver → dimension → Protocol B → Protocol P → fact và baseline Spark → serving. [Flow](../pipeline/flow.py)

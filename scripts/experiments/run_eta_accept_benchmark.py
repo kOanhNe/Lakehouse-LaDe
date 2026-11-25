@@ -3,46 +3,25 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+from datetime import timedelta
 from math import ceil
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
-import yaml
 
 from lakehouse import PROJECT_ROOT as ROOT
 
-from scripts.experiments.run_eta_experiment import FEATURES
-from eta.dataset import build_eta_samples, read_lade_csv
-from eta.model import fit_lightgbm
+from eta.dataset import (
+    OBSERVED_ACCEPT_VARIANTS, QUEUE_HISTORY_VARIANT, REGISTERED_ACCEPT_VARIANTS as VARIANTS, TARGET,
+    attach_observed_context, build_protocol_b_samples, labels_available_before,
+    load_accept_prereg, read_lade_csv, rolling_origin_rows, validation_rows,
+)
+from eta.metrics import accept_eta_metrics, paired_cluster_bootstrap
+from eta.model import fit_accept_eta, spark_accept_eta_predictions
 from eta.splits import time_boundaries
 
-TARGET = "target_remaining_minutes"
-AOI_FEATURES = ["aoi_past_avg_min", "aoi_past_count"]
-VARIANTS = {
-    "protocol_b": FEATURES,
-    "protocol_b_aoi": FEATURES + AOI_FEATURES,
-    "protocol_b_aoi_gps": FEATURES + AOI_FEATURES + ["accept_to_stop_km"],
-}
-
-
-def validation_rows(samples: pd.DataFrame, orders: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Use only labels observed before the validation period when fitting."""
-    boundaries = time_boundaries(samples, "query_ts")
-    delivered = samples.order_id.map(orders.delivery_ts)
-    train_mask = samples.split.eq("train") & delivered.lt(boundaries.train_end)
-    return samples.loc[train_mask], samples.loc[samples.split.eq("validation")]
-
-
-def fill_from_train_medians(train: pd.DataFrame, validation: pd.DataFrame,
-                            features: list[str]) -> tuple[pd.DataFrame, pd.DataFrame]:
-    columns = [*features, TARGET]
-    train_rows = train.loc[:, columns].copy()
-    validation_rows = validation.loc[:, columns].copy()
-    medians = train_rows[features].median()
-    train_rows[features] = train_rows[features].fillna(medians)
-    validation_rows[features] = validation_rows[features].fillna(medians)
-    return train_rows, validation_rows
+REFERENCE_VARIANT = "protocol_b_aoi_gps"
 
 
 def validation_metrics(actual: np.ndarray, predicted: np.ndarray) -> dict[str, float]:
@@ -56,7 +35,7 @@ def validation_metrics(actual: np.ndarray, predicted: np.ndarray) -> dict[str, f
 
 
 def load_benchmark_samples(source: Path) -> tuple[dict, pd.DataFrame, pd.DataFrame]:
-    prereg = yaml.safe_load((ROOT / "config" / "prereg.yaml").read_text(encoding="utf-8"))
+    prereg = load_accept_prereg()
     config = prereg["data"]
     with source.open("rb") as csv_file:
         source_hash = hashlib.file_digest(csv_file, "sha256").hexdigest()
@@ -65,9 +44,7 @@ def load_benchmark_samples(source: Path) -> tuple[dict, pd.DataFrame, pd.DataFra
 
     events = read_lade_csv(source)
     orders = events.set_index("order_id", verify_integrity=True)
-    samples = build_eta_samples(
-        events, "B", config["max_queries_per_courier_day"], config["query_seed"], include_aoi_gps=True,
-    )
+    samples = build_protocol_b_samples(events, config)
     return prereg, orders, samples
 
 
@@ -76,7 +53,8 @@ def write_report(rows: list[dict], output: Path) -> None:
     report["seed"] = report["seed"].astype("Int64")
     output.parent.mkdir(parents=True, exist_ok=True)
     report.to_csv(output, index=False, float_format="%.8f")
-    print(report.round(2).to_string(index=False))
+    summary = report.loc[report.scope.eq("pooled")] if "scope" in report else report
+    print(summary.dropna(axis="columns", how="all").round(2).to_string(index=False))
 
 
 def run(source: Path, output: Path, seeds: list[int] | None = None) -> None:
@@ -97,10 +75,9 @@ def run(source: Path, output: Path, seeds: list[int] | None = None) -> None:
         "variant": "median_train", "seed": None, **sample_counts, **validation_metrics(actual, median),
     }]
     for variant, features in VARIANTS.items():
-        train_rows, validation_inputs = fill_from_train_medians(train, validation, features)
         for seed in seeds:
-            model = fit_lightgbm(train_rows, validation_inputs, features, seed=seed)
-            predicted = model.predict(validation_inputs[features])
+            model = fit_accept_eta(train, validation, features, seed=seed)
+            predicted = model.predict(validation)
             results.append({
                 "variant": variant, "seed": seed, **sample_counts, **validation_metrics(actual, predicted),
             })
@@ -150,7 +127,7 @@ def run_holdout(source: Path, output: Path) -> None:
     prereg, orders, samples = load_benchmark_samples(source)
     train, validation = validation_rows(samples, orders)
     test_start = time_boundaries(samples, "query_ts").validation_end
-    validation = validation.loc[validation.order_id.map(orders.delivery_ts).lt(test_start)]
+    validation = labels_available_before(validation, orders, test_start)
     test = samples.loc[samples.split.eq("test")].sort_values(["query_ts", "order_id"])
     sample_counts = {
         "train_rows": len(train), "validation_rows": len(validation), "test_rows": len(test),
@@ -166,18 +143,110 @@ def run_holdout(source: Path, output: Path) -> None:
 
     for variant in ("protocol_b", "protocol_b_aoi_gps"):
         features = VARIANTS[variant]
-        train_inputs, validation_inputs = fill_from_train_medians(train, validation, features)
-        test_inputs = test[features].fillna(train[features].median())
         for seed in prereg["model"]["seeds"]:
-            model = fit_lightgbm(train_inputs, validation_inputs, features, seed=seed)
-            predicted = np.maximum(model.predict(test_inputs), 0)
+            model = fit_accept_eta(train, validation, features, seed=seed)
+            predicted = model.predict(test)
             row = {"variant": variant, "seed": seed, **sample_counts, **holdout_metrics(actual, predicted)}
             if variant == "protocol_b_aoi_gps":
-                validation_prediction = np.maximum(model.predict(validation_inputs[features]), 0)
-                residual = validation_inputs[TARGET].to_numpy() - validation_prediction
+                residual = validation[TARGET].to_numpy() - model.predict(validation)
                 row.update(candidate_metrics(actual, predicted, residual))
             results.append(row)
             print(f"Scored {variant}, seed {seed}", flush=True)
+
+    write_report(results, output)
+
+
+def rolling_metrics(actual, predicted) -> dict:
+    metrics = accept_eta_metrics(actual, predicted)
+    metrics.pop("rmse")
+    return metrics
+
+
+def run_rolling_origin(source: Path, output: Path, seeds: list[int] | None = None, *, spark=None) -> None:
+    """Score only development query dates, on the same orders for every variant."""
+    if source.resolve() == output.resolve():
+        raise ValueError("Output path must differ from the source CSV")
+    prereg, orders, registered = load_benchmark_samples(source)
+    seeds = seeds or prereg["model"]["seeds"]
+    observed = attach_observed_context(registered, orders.reset_index())
+    spark_variants = ("spark_lr", "spark_gbt_absolute")
+    if spark is None:
+        reference = REFERENCE_VARIANT
+        variants = {reference: VARIANTS[reference], **OBSERVED_ACCEPT_VARIANTS}
+    else:
+        reference = QUEUE_HISTORY_VARIANT
+        feature_set = OBSERVED_ACCEPT_VARIANTS[reference]
+        variants = dict.fromkeys((reference, *spark_variants), feature_set)
+    predictions = {
+        ("median_region_hour", None): [],
+        **{(variant, seed): [] for variant in variants for seed in seeds},
+    }
+    score_windows = []
+    results = []
+    for fold, (train, calibration, scored) in enumerate(rolling_origin_rows(registered, orders), 1):
+        actual = scored[TARGET].to_numpy()
+        start = scored.query_ts.min().date()
+        end = scored.query_ts.max().date() + timedelta(days=1)
+        scope = {
+            "scope": "window", "group": str(fold), "score_start": start,
+            "score_end_exclusive": end, "train_rows": len(train), "calibration_rows": len(calibration),
+        }
+        score_windows.append(observed.loc[scored.index])
+        print(f"Window {fold} [{start}, {end}) | fit={len(train)} "
+              f"calibration={len(calibration)} score={len(scored)}", flush=True)
+        for (variant, seed), previous in predictions.items():
+            if seed is None:
+                predicted = region_hour_median(train, scored)
+            elif variant in spark_variants:
+                predicted = spark_accept_eta_predictions(
+                    spark, observed.loc[train.index], observed.loc[calibration.index],
+                    observed.loc[scored.index], variants[variant], variant, seed,
+                )
+            else:
+                frame = registered if variant == REFERENCE_VARIANT else observed
+                model = fit_accept_eta(frame.loc[train.index], frame.loc[calibration.index], variants[variant], seed)
+                predicted = model.predict(frame.loc[scored.index])
+            previous.append(predicted)
+            metrics = rolling_metrics(actual, predicted)
+            results.append({"variant": variant, "seed": seed, **scope, **metrics})
+            print(f"  {variant} seed={seed} MAE={metrics['mae']:.2f}", flush=True)
+
+    scored = pd.concat(score_windows, verify_integrity=True)
+    actual = scored[TARGET].to_numpy()
+    cluster = scored.courier_id.astype(str) + "|" + scored.courier_day
+    slices = {
+        "batch_size": pd.cut(scored.batch_size, [0, 1, 3, np.inf], labels=["1", "2-3", "4+"]),
+        "accept_hour_4h": scored.accept_hour.floordiv(4).mul(4).astype(int),
+        "region": scored.candidate_region_id,
+        "duration": np.where(actual <= 1440, "<=1440", ">1440"),
+    }
+    slice_indices = {
+        scope: scored.groupby(labels, observed=True, sort=True).indices for scope, labels in slices.items()
+    }
+    for (variant, seed), windows in predictions.items():
+        predicted = np.concatenate(windows)
+        row = {"variant": variant, "seed": seed, "scope": "pooled", "group": "all",
+               **rolling_metrics(actual, predicted)}
+        if seed is not None and variant != reference and cluster.nunique() >= 2:
+            paired = pd.DataFrame({
+                TARGET: actual, "candidate": predicted,
+                "reference": np.concatenate(predictions[(reference, seed)]),
+                "courier_day": cluster.to_numpy(),
+            })
+            cfg = prereg["bootstrap"]
+            bootstrap = paired_cluster_bootstrap(
+                paired, TARGET, "candidate", "reference", "courier_day", cfg["n_resamples"], cfg["seed"],
+            )
+            bootstrap["bootstrap_seed"] = bootstrap.pop("seed")
+            row.update(bootstrap)
+            row["reference_variant"] = reference
+        results.append(row)
+        for scope, groups in slice_indices.items():
+            for label, positions in groups.items():
+                results.append({
+                    "variant": variant, "seed": seed, "scope": scope, "group": str(label),
+                    **rolling_metrics(actual[positions], predicted[positions]),
+                })
 
     write_report(results, output)
 
@@ -187,13 +256,34 @@ def main() -> None:
     parser.add_argument("--source", type=Path, default=ROOT / "data" / "delivery_yt.csv")
     parser.add_argument("--output", type=Path)
     parser.add_argument("--seeds", "--seed", type=int, nargs="+", help="Model seeds from prereg.yaml by default")
-    parser.add_argument("--holdout", action="store_true", help="Evaluate the frozen validation-selected candidate")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--holdout", action="store_true", help="Evaluate the frozen validation-selected candidate")
+    mode.add_argument("--rolling-origin", action="store_true", help="Compare features on development dates only")
+    parser.add_argument("--spark", action="store_true", help="Compare Spark LR/GBT with LightGBM on rolling-origin rows")
     args = parser.parse_args()
+    if args.spark and not args.rolling_origin:
+        parser.error("--spark uses the --rolling-origin evaluation")
     if args.holdout:
         if args.seeds is not None:
             parser.error("--holdout uses the frozen seeds from prereg.yaml")
         output = args.output or ROOT / "reports" / "eta" / "eta_accept_benchmark_holdout.csv"
         run_holdout(args.source, output)
+    elif args.rolling_origin:
+        if args.spark:
+            from pyspark.sql import SparkSession
+
+            spark = (SparkSession.builder.master("local[2]").appName("ETA rolling-origin")
+                     .config("spark.sql.shuffle.partitions", "8")
+                     .config("spark.sql.execution.arrow.pyspark.enabled", "true").getOrCreate())
+            spark.sparkContext.setLogLevel("ERROR")
+            output = args.output or ROOT / "reports" / "eta" / "eta_accept_spark_rolling.csv"
+            try:
+                run_rolling_origin(args.source, output, args.seeds or [42], spark=spark)
+            finally:
+                spark.stop()
+        else:
+            output = args.output or ROOT / "reports" / "eta" / "eta_accept_benchmark_rolling.csv"
+            run_rolling_origin(args.source, output, args.seeds)
     else:
         output = args.output or ROOT / "reports" / "eta" / "eta_accept_benchmark_validation.csv"
         run(args.source, output, args.seeds)

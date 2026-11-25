@@ -45,8 +45,9 @@ Silver/Rejected, SCD2, các khóa dimension, fact, tổng hợp serving, trạng
 dashboard và các phụ thuộc tương lai của Protocol P.
 
 Kiểm thử của benchmark Protocol B cắt CSV Yantai tại 15/08/2022 và ẩn các lần
-giao sau mốc cắt. Đặc trưng AOI/GPS của tất cả đơn nhận trước mốc phải bằng
-kết quả tính từ toàn bộ file.
+giao sau mốc cắt. AOI, GPS, hàng chờ và lịch sử của các đơn nhận trước mốc
+khớp với giá trị từ toàn bộ file. Phép tính trực tiếp trên 400 đơn cũng khớp
+14 trường trạng thái và lịch sử đã kiểm tra.
 
 Bộ integration cần Spark/Delta, MinIO, MySQL và API Prefect. Nó chạy flow với
 CSV mẫu và namespace riêng, tạo lỗi sau khi một bảng serving đã được ghi, xác
@@ -54,13 +55,15 @@ nhận lần lỗi bị ẩn và chạy lại để đối chiếu grain, khóa 
 Một kiểm thử khác dùng kết nối MySQL thật để kiểm tra tranh chấp khóa, nhận biết
 mất kết nối và ghi nhận lần chạy bị gián đoạn.
 
-Kết quả kiểm thử sau khi sắp xếp lại thư mục được ghi dưới đây.
+Kết quả kiểm thử của bản ETA lúc nhận được ghi dưới đây.
 
 | Kiểm tra | Kết quả |
 |---|---|
-| Unit trong container Jupyter, `pytest -m "not integration" -q` | 38 đạt, gồm 6 kiểm thử Spark. |
-| Integration trong Docker với các dịch vụ thật | Lần đầu Docker ngắt vì ổ đĩa máy kiểm thử hết chỗ. Lần chạy lại đã khởi động các dịch vụ và vào flow Prefect, sau đó dừng khi dung lượng tiếp tục xuống thấp. Hai kiểm thử chưa hoàn tất trên cấu trúc mới. |
-| Cấu hình Compose và `config/schema.yaml` | Hợp lệ. Build được các image Lakehouse, Jupyter, Prefect và dashboard. |
+| Unit trong container Jupyter, `pytest -m "not integration" -q` | 43 đạt, gồm 6 kiểm thử Spark. |
+| Notebook 06 với CSV Yantai | Bảy giá trị tính tay khớp bảng mẫu. Tổng lá cây khớp `predict()`. Điểm của cửa sổ cuối khớp benchmark theo seed. |
+| Bước ETA với Spark/Delta | Ghi và đọc được dự đoán, metric validation và mã lần chạy từ Delta cục bộ. Hàm ghi MySQL dùng bộ thay thế để kiểm tra bảng và dòng nhận được. |
+| Integration toàn flow với Prefect, MinIO và MySQL | Chưa chạy lại trên nhánh ETA này. Lượt sau khi chuyển đường dẫn từng dừng do ổ đĩa máy kiểm thử hết chỗ. |
+| Cấu hình và nguồn notebook | Compose, `config/schema.yaml` và các cell định nghĩa hợp lệ. |
 
 Ở đợt ổn định trước khi chuyển đường dẫn, hai kiểm thử integration đã đạt. Đối
 soát chỉ đọc khi đó xác nhận SHA-256 của CSV trên MinIO khớp bản đăng ký. Delta
@@ -69,16 +72,16 @@ serving MySQL khớp Silver.
 
 ## Kết quả ETA
 
-Giữ nguyên thuật toán, seed, cách chia và các kết quả nghiên cứu đã lưu.
+Kết quả Protocol P đã lưu dùng thiết kế tái lập LaDe.
 [Audit leakage](eta/leak_inventory.md#audit-protocol-p) ghi rõ các phụ thuộc của
 `spd`, `ntodo`, `rank`, quỹ đạo đã làm sạch và cách chọn cửa sổ. Hai phép thử
 phản thực tế kiểm tra sự phụ thuộc của đặc trưng. Metric hiện tại mô tả kết quả
 tái lập ngoại tuyến trên cohort của Protocol P.
 
-Protocol B đánh giá ETA tại lúc nhận đơn với kiểm soát leakage theo contract.
-Spark LR/GBT là baseline thời lượng giao hàng trên cohort riêng. Dashboard có
-tab cho từng bài toán. Xem [phạm vi so sánh MAE](eta/analysis_limits.md#4-phạm-vi-so-sánh-kết-quả-eta).
-
-Script benchmark chấm baseline median và ba bộ đặc trưng Protocol B trên cùng
-73.107 đơn train và 24.647 đơn validation. Các mô hình LightGBM dùng seed
-42–44. Báo cáo CSV ghi chỉ số theo từng seed. [Nguồn dữ liệu và cách chạy](eta/training_data_lineage.md#34-thử-nghiệm-thêm-lịch-sử-aoi-và-gps-cho-protocol-b)
+Prefect dùng `protocol_b_queue_history` cho ETA lúc nhận. Mô hình lấy các sự kiện
+trước truy vấn, fit bằng nhãn có trước cửa sổ hiệu chỉnh và công bố validation
+cuối. Kết quả ba cửa sổ và ba seed cho MAE 104,16 phút và ACC@30 31,88%.
+Đối chứng Spark LR/GBT đã chạy trên cùng các đơn, mốc nhận và bộ đặc trưng.
+Bảng Spark của notebook 04 vẫn mô tả cohort GPS/24 giờ/50 km. Holdout đóng
+băng của cấu hình B + AOI + GPS lưu trong báo cáo lịch sử.
+[Nguồn mẫu và kết quả](eta/training_data_lineage.md#35-so-sánh-rolling-origin-trên-cùng-mã-đơn)

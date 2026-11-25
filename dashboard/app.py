@@ -233,14 +233,17 @@ with tab_paper:
 
 with tab_protocol_b:
     st.subheader("Protocol B · ETA tại lúc nhận đơn")
-    st.markdown("Bài toán phụ với kiểm soát leakage theo contract. Điểm truy vấn là lúc nhận đơn, "
-                "và lịch sử shipper dùng các đơn đã giao tới thời điểm đó. Đọc MAE trên tập đánh giá của Protocol B.")
+    st.markdown("Đánh giá ETA vận hành trong đồ án tại lúc shipper nhận đơn. "
+                "Các chỉ số áp dụng cho cửa sổ và phiên bản ghi trong lần chạy.")
     safe = tables["eta_safe_metrics"]
     if safe is not None and not safe.empty:
-        st.dataframe(safe, width="stretch", hide_index=True)
-        test_safe = safe[safe.split.astype(str).str.lower().eq("test")]
-        if not test_safe.empty:
-            chart(px.bar(test_safe, x="seed", y=["mae", "rmse"], barmode="group", title="ETA lúc nhận đơn (Protocol B) theo seed", labels={"seed":"Seed", "value":"Phút"}), 380)
+        columns = ["variant", "evaluation_scope", "score_start", "score_end_exclusive",
+                   "split", "seed", "n", "mae", "wape_pct", "acc30_pct", "acc60_pct", "p90_abs_error_min"]
+        if "variant" not in safe:
+            st.caption("Kết quả lịch sử của lần chạy Protocol B gốc.")
+        else:
+            st.caption("rolling_validation là cửa sổ validation cuối. calibration là điểm trên tập hiệu chỉnh.")
+        st.dataframe(safe[[name for name in columns if name in safe]], width="stretch", hide_index=True)
 
 with tab_spark:
     st.subheader("Spark LR/GBT · Baseline thời lượng giao hàng")

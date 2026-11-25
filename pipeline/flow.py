@@ -49,7 +49,7 @@ def t_gold(_upstream, train_end, late_threshold_min, run_id):
     return out
 
 
-@task(name="4b. Gold: leakage-safe ETA", retries=1, retry_delay_seconds=30)
+@task(name="4b. Gold: ETA tại lúc nhận đơn", retries=1, retry_delay_seconds=30)
 def t_eta_safe(_upstream, run_id):
     out = steps.build_eta_safe(steps.get_spark(), run_id=run_id)
     get_run_logger().info(out)

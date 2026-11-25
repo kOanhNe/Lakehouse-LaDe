@@ -88,12 +88,16 @@ Các cửa sổ chồng lấn và nhiều đơn cho mỗi truy vấn giải thí
 
 ### 3.2. Protocol B · ETA tại lúc nhận đơn
 
+Mô tả dưới đây là Protocol B gốc dùng trong nghiên cứu đăng ký. Cấu hình
+Prefect hiện tại dùng cùng mã đơn và dựng trạng thái theo sự kiện đã quan sát
+như mục 3.5.
+
 1. `build_eta_safe()` tải toàn bộ Bronze sang pandas. `parse_lade_frame()` ép kiểu các cột và dựng timestamp. `build_eta_samples()` giữ đơn có timestamp nhận/giao hợp lệ và thời lượng dương. Trên Yantai bước này có **206.062 đơn** trước khi lấy mẫu.
 2. Với mỗi đơn, `query_ts = accept_ts`. Nhãn `target_remaining_minutes` bằng `delivery_minutes` của đơn. Code dựng lịch sử theo từng shipper từ các đơn đủ điều kiện. Số đơn đã giao, thời lượng giao trung bình và GPS của đơn giao gần nhất lấy từ các lần giao có `delivery_ts <= query_ts`. Số đơn đang cầm lấy số đơn đã nhận tới query, trừ số đã giao và trừ đơn đang xét.
 3. Mô hình dùng chín đặc trưng. Bốn đặc trưng lịch sử là `pending_order_count`, `completed_order_count`, `courier_avg_min`, `distance_to_last_delivery_km`. Năm đặc trưng của đơn đang xét là `candidate_lat`, `candidate_lng`, `candidate_aoi_type`, `candidate_region_id` và `accept_hour`. Khoảng cách lịch sử đo từ GPS của lần giao gần nhất tới điểm giao đích của đơn đang xét.
 4. `query_grid()` chọn tối đa 12 đơn cho mỗi shipper mỗi ngày bằng SHA-256 với seed lấy mẫu 42. Đặc trưng lịch sử được dựng trước khi lấy mẫu này. Sau khi lấy mẫu còn **123.117 đơn**, chia theo ngày nhận ở mốc 60% và 80%. Giá trị thiếu trong cả ba tập được điền bằng median của từng đặc trưng tính trên train. LightGBM dùng validation để dừng sớm.
 
-`courier_avg_min` ở đây đổi theo mốc nhận từng đơn. Biến thể **A-lite** trong script kiểm tra leakage dùng trung bình cả file của shipper trên cùng tập truy vấn, để so với B. Prefect chạy biến thể B. [Builder Protocol B](../../src/eta/dataset.py) · [Lấy mẫu và chia ngày](../../src/eta/splits.py) · [Script so A-lite và B](../../scripts/experiments/run_eta_experiment.py)
+`courier_avg_min` ở đây đổi theo mốc nhận từng đơn. Biến thể **A-lite** trong script kiểm tra leakage dùng trung bình cả file của shipper trên cùng tập truy vấn để so với B. [Builder Protocol B](../../src/eta/dataset.py) · [Lấy mẫu và chia ngày](../../src/eta/splits.py) · [Script so A-lite và B](../../scripts/experiments/run_eta_experiment.py)
 
 ### 3.3. Spark LR/GBT · baseline thời lượng giao hàng
 
@@ -103,6 +107,11 @@ Các cửa sổ chồng lấn và nhiều đơn cho mỗi truy vấn giải thí
 4. LR và GBT fit trên `label_log = log1p(delivery_minutes)`. Khi chấm test, code đổi dự đoán về phút bằng `expm1` và chặn dưới tại 0. Hai mốc so sánh là median và trung bình thời lượng trên train.
 
 Phép đo ảnh hưởng của `courier_train_avg_min` dựng lại cohort Spark rồi dùng LightGBM để đối chiếu các cách tạo feature. Đây là thí nghiệm audit riêng với kết quả LR/GBT của pipeline. [Huấn luyện Spark](../../notebooks/04_fact.ipynb) · [Phép đo feature shipper](leak_measurement.md#3-baseline-spark-courier_train_avg_min)
+
+Trong baseline Spark này, bộ lọc thời lượng 24 giờ chạy trước phép tính
+`order_rank` và `cum_avg_dist`, nên tập đơn dùng tính hai cột phụ thuộc nhãn
+đã quan sát sau giao. GBT mặc định dùng squared loss trên nhãn log. Điểm của
+baseline chỉ mô tả cohort GPS/24 giờ/50 km của nó.
 
 ### Số dòng dùng để fit và chấm trên CSV Yantai
 
@@ -139,12 +148,84 @@ Script xác nhận SHA-256 của CSV Yantai trước khi tạo tập mẫu. Cả
 | B + AOI | 111,14 ± 0,31 | 21,64% | 31,14% | 224,12 |
 | B + AOI + GPS | 109,60 ± 0,14 | 22,66% | 32,51% | 223,04 |
 
-Thử nghiệm gọi `build_eta_samples(..., include_aoi_gps=True)` để gắn đặc trưng vào bảng mẫu chung. Flow hiện dùng cấu hình Protocol B đã đăng ký. Muốn so Spark LR/GBT trên bảng này, cần fit lại trên cùng các mã đơn, mốc nhận và nhãn. [Script thử nghiệm](../../scripts/experiments/run_eta_accept_benchmark.py) · [Hợp đồng cột](../../config/schema.yaml)
-
-Notebook 06 chọn một mẫu validation để đối chiếu nhãn, lịch sử AOI, Haversine và tổng giá trị lá cây với kết quả mô hình. [Đối chiếu từ CSV đến dự đoán](../../notebooks/06_eta_accept.ipynb)
+Thử nghiệm dùng cùng builder và hàm fit với notebook. Chế độ mặc định tái
+lập bảng validation lịch sử. [Script thử nghiệm](../../scripts/experiments/run_eta_accept_benchmark.py)
 
 ~~~bash
 python -m scripts.experiments.run_eta_accept_benchmark
+~~~
+
+### 3.5. So sánh rolling-origin trên cùng mã đơn
+
+Benchmark và notebook 06 dùng `build_protocol_b_samples()` cùng
+`fit_accept_eta()`. Mỗi dòng chấm giữ đúng mã đơn, thời điểm nhận và nhãn
+của tập Protocol B gốc. Các cửa sổ tăng dần theo ngày nhận là 19/08–31/08,
+01/09–12/09 và 13/09–24/09/2022. Mỗi cửa sổ dùng tối đa 14 ngày có mẫu ngay
+trước đó để hiệu chỉnh dừng sớm. Đoạn fit đứng trước đoạn hiệu chỉnh.
+Nhãn fit phải xuất hiện trước ngày hiệu chỉnh, nhãn hiệu chỉnh phải xuất
+hiện trước ngày chấm. Median điền thiếu chỉ học trên tập fit.
+
+| Đặc trưng | Sự kiện dùng để dựng giá trị |
+| --- | --- |
+| Hàng chờ và tiến độ shipper | Lần nhận và giao hợp lệ trước query. Đơn nhận trước query vẫn góp vào hàng chờ khi thiếu sự kiện giao. Số đơn đã nhận, đã giao trong ngày và số phút từ lần giao cuối mô tả trạng thái ở lúc nhận. |
+| AOI và vùng × giờ | Thời lượng của các đơn giao trong 28 ngày trước query, cùng AOI hoặc cùng vùng và giờ nhận. Trung bình AOI toàn lịch sử và khoảng cách từ GPS nhận vẫn nằm trong bộ đặc trưng. |
+| Nhịp của shipper | Thời lượng giao và trung bình khoảng cách thời gian giữa hai lần giao trong cùng ngày. Lịch sử chọn theo các lần giao trong bảy ngày trước query. |
+| Lô cùng phút | Số đơn cùng shipper và timestamp nhận, kèm hạng khoảng cách GPS–đích. Biến thể này giả định mọi đơn cùng timestamp đã được thấy cùng lúc. |
+
+Biến thể `protocol_b_observed` dựng lại bộ B + AOI + GPS từ sự kiện trước
+query. Khoảng cách tới lần giao gần nhất dùng tọa độ đích của đơn đã giao.
+`protocol_b_queue_history` bổ sung hàng chờ trong ngày và lịch sử gần đây.
+Biến thể lô thêm `batch_size` và `batch_distance_rank`. Trên CSV Yantai,
+khoảng 77,6% dòng chia sẻ timestamp nhận với ít nhất một đơn khác của
+cùng shipper. Timestamp nhận có độ phân giải phút.
+
+| Biến thể | MAE (phút) | WAPE | ACC@30 | ACC@60 |
+| --- | ---: | ---: | ---: | ---: |
+| Trung vị theo vùng và khung giờ | 147,93 | 51,49% | 18,05% | 35,24% |
+| B + AOI + GPS lịch sử | 109,52 | 38,13% | 31,43% | 53,36% |
+| B + AOI + GPS theo sự kiện trước query | 109,82 | 38,23% | 30,79% | 52,79% |
+| Thêm hàng chờ và lịch sử gần đây | **104,16** | **36,26%** | **31,88%** | **54,49%** |
+| Thêm cả lô cùng phút | 104,90 | 36,52% | 31,82% | 54,24% |
+
+Các hàng LightGBM lấy trung bình qua seed 42–44 trên **24.647 đơn
+validation**. Với seed 42, hàng chờ và lịch sử giảm MAE **6,08 phút** so
+với cấu hình lịch sử B + AOI + GPS. Bootstrap ghép cặp theo 3.579 cụm
+shipper–ngày cho khoảng 95% từ **−7,50 đến −4,73 phút** với 2.000 lượt.
+WAPE là tổng sai số tuyệt đối chia tổng thời lượng thực tế. CSV có điểm
+từng cửa sổ, kích thước lô, khung bốn giờ, vùng và nhóm thời lượng. Hai
+nhóm thời lượng được tách sau khi dự đoán. [Kết quả rolling-origin](../../reports/eta/eta_accept_benchmark_rolling.csv)
+
+Prefect chọn `protocol_b_queue_history` vì MAE giảm ở cả ba cửa sổ và
+bộ này dùng được khi nguồn gửi từng đơn tại lúc nhận. Notebook 06 đối
+chiếu nhãn, hàng chờ, AOI, GPS và tổng giá trị lá cây với
+`predict()`. [Đối chiếu một đơn thật](../../notebooks/06_eta_accept.ipynb)
+
+~~~bash
+python -m scripts.experiments.run_eta_accept_benchmark --rolling-origin
+~~~
+
+#### Đối chiếu LightGBM và Spark
+
+Chế độ `--spark` chạy LightGBM, Spark LR và Spark GBT trên cùng ba cửa sổ,
+cùng mã đơn và cùng bộ đặc trưng hàng chờ và lịch sử. Nhãn là số phút.
+GBT dùng `lossType="absolute"` và cùng tập hiệu chỉnh. LR dùng squared
+loss. Chỉ sau khi dự đoán mới cắt lát theo ngưỡng 1.440 phút.
+[Mã nguồn GBT Spark 3.5.3](https://github.com/apache/spark/blob/v3.5.3/mllib/src/main/scala/org/apache/spark/ml/regression/GBTRegressor.scala)
+
+| Mô hình, seed 42 | MAE toàn bộ 24.647 đơn | MAE trên 24.053 đơn ≤1.440 phút | ACC@30 toàn bộ |
+| --- | ---: | ---: | ---: |
+| LightGBM | 103,71 | 90,24 | 31,82% |
+| Spark LR | 129,15 | 113,38 | 17,78% |
+| Spark GBT absolute | 127,41 | 112,13 | 20,43% |
+
+Các điểm Spark trên bảng này thuộc benchmark tại lúc nhận. Notebook 04
+tiếp tục công bố baseline Spark trên cohort lịch sử của fact.
+[CSV đối chứng Spark](../../reports/eta/eta_accept_spark_rolling.csv)
+
+Chạy với image Jupyter đã build. Bài đo chỉ dùng Spark cục bộ trong container.
+
+~~~powershell
+docker compose run -T --rm --no-deps -e "PYSPARK_SUBMIT_ARGS=--master local[2] --driver-memory 1g pyspark-shell" jupyter python -m scripts.experiments.run_eta_accept_benchmark --rolling-origin --spark --seeds 42
 ~~~
 
 ## 4. Dữ liệu được lưu và đưa lên dashboard
@@ -155,7 +236,7 @@ Pipeline lưu dự đoán và metric theo các nhánh sau.
 | Dữ liệu đã tạo | Nơi lưu | Nội dung dùng tiếp |
 | --- | --- | --- |
 | Kết quả Protocol P | Delta `eta_paper_gold`, `eta_paper_metrics_gold` · MySQL `eta_paper_metrics` | Delta giữ dự đoán từng cặp test của seed đầu. Metric test gồm median, SPEED và LightGBM theo seed. Dashboard đọc metric MySQL. |
-| Kết quả Protocol B | Delta `eta_safe_gold`, `eta_safe_metrics_gold` · MySQL `eta_safe_metrics` | Delta giữ `order_id`, mốc truy vấn, nhãn và dự đoán test của seed đầu. Metric validation/test được lưu theo seed. P và B dùng các seed 42, 43, 44 trong flow. |
+| Kết quả Protocol B | Delta `eta_safe_gold`, `eta_safe_metrics_gold` · MySQL `eta_safe_metrics` | Delta giữ mã đơn và dự đoán validation của seed đầu. Metric có mã biến thể, seed, phạm vi và mốc cửa sổ chấm. Flow công bố cửa sổ cuối của rolling-origin. |
 | Kết quả Spark LR/GBT | Delta `eta_predictions_gold` · MySQL `ml_metrics`, `ml_feature_importance` | Delta giữ dự đoán từng đơn test cho LR, GBT, median và mean. MySQL dùng metric test và độ quan trọng feature của GBT để hiển thị. |
 | Tổng hợp vận hành | MySQL `agg_*` và các bảng `dim_*` | Tổng đơn, thời lượng và tỷ lệ trễ lấy từ toàn bộ fact. Số liệu sai số GBT theo shipper/khu vực lấy từ dự đoán test. |
 | Mẫu dự đoán và thông tin lần chạy | MySQL `eta_prediction_sample`, `pipeline_run_info` | Mẫu tối đa 3.000 đơn lấy từ dự đoán Spark trên test để vẽ biểu đồ. `pipeline_run_info` ghi ngày cắt, kích thước tập Spark và ngưỡng tính trễ. |
