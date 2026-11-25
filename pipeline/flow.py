@@ -4,16 +4,22 @@ Chạy một lần:      python /home/jovyan/pipeline/flow.py
 Chạy theo lịch:    python /home/jovyan/pipeline/flow.py --serve
 """
 import argparse
-import os
 import sys
+from pathlib import Path
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+PIPELINE_DIR = Path(__file__).resolve().parent
+PROJECT_ROOT = PIPELINE_DIR.parent
+# Docker mounts scripts and src beside the notebooks in /home/jovyan/work.
+PYTHON_ROOT = PROJECT_ROOT if (PROJECT_ROOT / "scripts").is_dir() else PROJECT_ROOT / "work"
+sys.path[:0] = [str(PIPELINE_DIR), str(PYTHON_ROOT)]
 
 from prefect import flow, get_run_logger, task
 from prefect.runtime import flow_run
 
 from run_state import track_run
-import steps
+from scripts.check_project import load_notebook_steps
+
+steps = load_notebook_steps()
 
 
 @task(name="1. Bronze: nạp CSV", retries=1, retry_delay_seconds=30)

@@ -1,33 +1,59 @@
 from datetime import date, datetime
+import json
+import sys
 
 import pytest
 
-
-def test_pipeline_steps_match_notebooks():
-    from scripts.check_project import check_notebook_steps
-
-    check_notebook_steps()
+from scripts import check_project
 
 
-def test_bronze_contract_and_unique_keys(local_spark, tmp_path, write_lade_csv):
-    from steps import read_bronze_csv, require_unique_orders
+def test_pipeline_notebook_definitions_compile():
+    assert check_project.compile_notebook_steps()
 
+
+def test_notebook_loader_skips_unmarked_examples(tmp_path, monkeypatch):
+    name = "stage.ipynb"
+    example = {"cell_type": "code", "id": "example", "source": "result = fail()", "metadata": {}}
+    cells = [
+        {"cell_type": "code", "id": "definitions", "metadata": {"tags": ["pipeline-step"]},
+         "source": "OFFSET = 4\n\ndef transform(value):\n    return value + OFFSET"},
+        example,
+    ]
+    path = tmp_path / name
+    path.write_text(json.dumps({"cells": cells}), encoding="utf-8")
+    monkeypatch.setattr(check_project, "NOTEBOOK_DIR", tmp_path)
+    monkeypatch.setattr(check_project, "PIPELINE_NOTEBOOKS", (name,))
+    monkeypatch.setattr(sys, "path", sys.path.copy())
+
+    steps = check_project.load_notebook_steps()
+    assert steps.transform(3) == 7
+
+    example["metadata"]["tags"] = ["pipeline-step"]
+    path.write_text(json.dumps({"cells": cells}), encoding="utf-8")
+    with pytest.raises(ValueError, match="Move runnable examples"):
+        check_project.load_notebook_steps()
+
+
+@pytest.fixture(scope="module")
+def steps(local_spark):
+    return check_project.load_notebook_steps()
+
+
+def test_bronze_contract_and_unique_keys(local_spark, steps, tmp_path, write_lade_csv):
     path = write_lade_csv(tmp_path / "orders.csv", [{"order_id": "001"}, {"order_id": "002"}])
-    raw = read_bronze_csv(local_spark, path.as_uri())
-    require_unique_orders(raw)
+    raw = steps.read_bronze_csv(local_spark, path.as_uri())
+    steps.require_unique_orders(raw)
     assert set(row.order_id for row in raw.collect()) == {"001", "002"}
     malformed = write_lade_csv(tmp_path / "wrong.csv", [{}], columns=["order_id"])
     with pytest.raises(ValueError, match="CSV LaDe-D"):
-        read_bronze_csv(local_spark, malformed.as_uri())
+        steps.read_bronze_csv(local_spark, malformed.as_uri())
     for invalid_id in ("001", "   "):
         bad = write_lade_csv(tmp_path / "ids.csv", [{"order_id": "001"}, {"order_id": invalid_id}])
         with pytest.raises(ValueError, match="order_id"):
-            require_unique_orders(read_bronze_csv(local_spark, bad.as_uri()))
+            steps.require_unique_orders(steps.read_bronze_csv(local_spark, bad.as_uri()))
 
 
-def test_silver_cohort_flags_and_rejected_reasons(local_spark, tmp_path, write_lade_csv):
-    from steps import read_bronze_csv, reconcile_silver, split_silver
-
+def test_silver_cohort_flags_and_rejected_reasons(local_spark, steps, tmp_path, write_lade_csv):
     rows = [
         {"order_id": "normal"},
         {"order_id": "over24", "delivery_time": "06-06 09:00:00"},
@@ -38,9 +64,9 @@ def test_silver_cohort_flags_and_rejected_reasons(local_spark, tmp_path, write_l
         {"order_id": "negative", "delivery_time": "06-04 07:59:00"},
     ]
     path = write_lade_csv(tmp_path / "orders.csv", rows)
-    raw = read_bronze_csv(local_spark, path.as_uri())
-    silver, rejected = split_silver(raw)
-    assert reconcile_silver(raw, silver, rejected) == {
+    raw = steps.read_bronze_csv(local_spark, path.as_uri())
+    silver, rejected = steps.split_silver(raw)
+    assert steps.reconcile_silver(raw, silver, rejected) == {
         "bronze_rows": 7, "silver_rows": 4, "rejected_rows": 3,
     }
     accepted = {row.order_id: row for row in silver.collect()}
@@ -54,9 +80,9 @@ def test_silver_cohort_flags_and_rejected_reasons(local_spark, tmp_path, write_l
     # A duplicate and an omitted ID can leave the total row count unchanged.
     damaged = silver.filter("order_id <> 'normal'").unionByName(silver.filter("order_id = 'far'"))
     with pytest.raises(ValueError, match="order_id"):
-        reconcile_silver(raw, damaged, rejected)
+        steps.reconcile_silver(raw, damaged, rejected)
     with pytest.raises(ValueError, match="lý do"):
-        reconcile_silver(raw, silver, rejected.withColumn("reject_reason", rejected.order_id))
+        steps.reconcile_silver(raw, silver, rejected.withColumn("reject_reason", rejected.order_id))
 
 
 def test_scd2_tie_boundaries_and_join_grain(local_spark):
@@ -106,9 +132,7 @@ def test_star_schema_and_fact_foreign_keys(local_spark):
         attach_dimension_keys(fact, incomplete)
 
 
-def test_serving_aggregates_known_orders(local_spark):
-    from steps import _metrics, serving_frames
-
+def test_serving_aggregates_known_orders(local_spark, steps):
     fact = local_spark.createDataFrame([
         ("a", 1, 10, 1.0, 30.0, date(2022, 6, 4), datetime(2022, 6, 4, 15)),
         ("b", 1, 10, 2.0, 70.0, date(2022, 6, 4), datetime(2022, 6, 4, 16)),
@@ -117,8 +141,8 @@ def test_serving_aggregates_known_orders(local_spark):
         ("b", 1, 10, 2, 2.0, 16.0, 70.0, 60.0, 55.0, 50.0),
     ], ["order_id", "courier_id", "region_id", "aoi_type", "distance_km", "accept_hour", "delivery_minutes",
         "pred_gbt", "pred_lr", "pred_median"])
-    serving = serving_frames(fact, pred, 50)
+    serving = steps.serving_frames(fact, pred, 50)
     overview = serving["agg_overview"].first()
     assert (overview.total_orders, overview.avg_delivery_minutes, overview.late_rate) == (2, 50.0, 0.5)
     assert serving["agg_region_error"].first().mae_gbt == 10.0
-    assert _metrics(pred, "delivery_minutes", "pred_gbt") == (1, 10.0, 10.0, None)
+    assert steps._metrics(pred, "delivery_minutes", "pred_gbt") == (1, 10.0, 10.0, None)

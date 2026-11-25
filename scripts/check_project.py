@@ -1,21 +1,21 @@
-"""Offline source/data checks; run with Python 3.10+ from the project root."""
-import argparse
+"""Load pipeline definitions from notebooks and check project inputs offline."""
 import ast
 import csv
 import json
 import math
+import os
+import sys
 import tarfile
-import tempfile
 import zipfile
 from collections import Counter
 from datetime import datetime
 from pathlib import Path
+from types import CodeType, ModuleType
 from xml.etree import ElementTree
 
 ROOT = Path(__file__).resolve().parents[1]
-NOTEBOOK_DIR = ROOT / "notebooks" if (ROOT / "notebooks").is_dir() else ROOT
-PIPELINE_DIR = ROOT / "pipeline" if (ROOT / "pipeline").is_dir() else ROOT.parent / "pipeline"
-STEPS_PATH = PIPELINE_DIR / "steps.py"
+DEFAULT_NOTEBOOK_DIR = ROOT / "notebooks" if (ROOT / "notebooks").is_dir() else ROOT
+NOTEBOOK_DIR = Path(os.getenv("NOTEBOOK_DIR", str(DEFAULT_NOTEBOOK_DIR)))
 PIPELINE_NOTEBOOKS = (
     "01_ingest_bronze.ipynb",
     "02_transform_silver.ipynb",
@@ -27,62 +27,51 @@ PIPELINE_NOTEBOOKS = (
 )
 
 
-def render_notebook_steps() -> str:
-    blocks = [
-        "# Generated from notebook code cells tagged pipeline-step.\n"
-        "# Run python scripts/check_project.py --sync-steps after editing those cells."
-    ]
+def compile_notebook_steps() -> list[CodeType]:
+    """Compile the tagged definitions before a flow can start executing tasks."""
+    compiled = []
     for name in PIPELINE_NOTEBOOKS:
-        notebook = json.loads((NOTEBOOK_DIR / name).read_text(encoding="utf-8"))
-        sources = [
-            "".join(cell["source"]).rstrip()
-            for cell in notebook["cells"]
+        path = NOTEBOOK_DIR / name
+        notebook = json.loads(path.read_text(encoding="utf-8"))
+        cells = [
+            cell for cell in notebook["cells"]
             if cell["cell_type"] == "code" and "pipeline-step" in cell.get("metadata", {}).get("tags", [])
         ]
-        if not sources or any(not source.strip() for source in sources):
+        if not cells:
             raise ValueError(f"Missing pipeline-step code in {name}")
-        blocks.append(f"# notebooks/{name}\n" + "\n\n\n".join(sources))
-    generated = "\n\n\n".join(blocks) + "\n"
-    compile(generated, str(STEPS_PATH), "exec")
-    return generated
+        for index, cell in enumerate(cells, 1):
+            location = f"{path}:{cell.get('id', index)}"
+            tree = ast.parse("".join(cell["source"]), filename=location)
+            if not tree.body:
+                raise ValueError(f"Empty pipeline-step cell at {location}")
+            for statement in tree.body:
+                if isinstance(statement, (ast.Import, ast.ImportFrom, ast.FunctionDef)):
+                    continue
+                if isinstance(statement, ast.Assign) and not any(
+                    isinstance(node, ast.Call) for node in ast.walk(statement.value)
+                ):
+                    continue
+                if isinstance(statement, ast.Expr) and isinstance(statement.value, ast.Constant):
+                    continue
+                raise ValueError(f"Move runnable examples out of the pipeline-step cell at {location}")
+            compiled.append(compile(tree, location, "exec"))
+    return compiled
 
 
-def check_notebook_steps() -> None:
-    if not STEPS_PATH.is_file() or STEPS_PATH.read_text(encoding="utf-8") != render_notebook_steps():
-        raise ValueError(
-            "pipeline/steps.py differs from the notebooks. "
-            "Run python scripts/check_project.py --sync-steps"
-        )
-
-
-def sync_notebook_steps() -> None:
-    source = render_notebook_steps()
-    if STEPS_PATH.is_file() and STEPS_PATH.read_text(encoding="utf-8") == source:
-        return
-    handle = tempfile.NamedTemporaryFile(
-        mode="w", encoding="utf-8", newline="\n", dir=PIPELINE_DIR,
-        prefix="steps-", suffix=".tmp", delete=False,
-    )
-    temporary = Path(handle.name)
-    try:
-        with handle:
-            handle.write(source)
-        mode = STEPS_PATH.stat().st_mode & 0o777 if STEPS_PATH.exists() else 0o644
-        temporary.chmod(mode)
-        temporary.replace(STEPS_PATH)
-    finally:
-        temporary.unlink(missing_ok=True)
+def load_notebook_steps() -> ModuleType:
+    """Load only notebook definitions into a shared namespace in memory."""
+    compiled = compile_notebook_steps()
+    helper_dir = str(NOTEBOOK_DIR.resolve())
+    if helper_dir not in sys.path:
+        sys.path.insert(0, helper_dir)
+    steps = ModuleType("lakehouse_notebook_steps")
+    for code in compiled:
+        exec(code, steps.__dict__)
+    return steps
 
 
 def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--sync-steps", action="store_true", help="Regenerate pipeline/steps.py from the notebooks")
-    args = parser.parse_args()
-    if args.sync_steps:
-        sync_notebook_steps()
-        print("Notebook steps are synced to pipeline/steps.py")
-        return
-    check_notebook_steps()
+    compile_notebook_steps()
     cells = 0
     for path in sorted((ROOT / 'notebooks').glob('*.ipynb')):
         notebook = json.loads(path.read_text(encoding='utf-8'))

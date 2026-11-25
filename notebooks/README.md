@@ -25,17 +25,11 @@ Dùng [hướng dẫn bật Docker](../readme.md#6-cài-đặt) cho các noteboo
 docker compose exec jupyter jupyter server list
 ~~~
 
-Mỗi notebook có đầu vào, thân hàm xử lý và cell gọi hàm để xem kết quả. Mở notebook tương ứng để đọc cách lọc Silver, tạo đặc trưng, huấn luyện hoặc ghi MySQL. Prefect dùng các hàm được xuất từ notebook và quản lý thứ tự, retry cùng mã lần chạy. [Thứ tự task](../pipeline/flow.py)
+Mỗi notebook có đầu vào, thân hàm xử lý và cell gọi hàm để xem kết quả. Mở notebook tương ứng để đọc cách lọc Silver, tạo đặc trưng, huấn luyện hoặc ghi MySQL. [Thứ tự task](../pipeline/flow.py)
 
-## Sửa logic rồi đồng bộ Prefect
+## Sửa và chạy các bước notebook
 
-Sửa code trong cell có tag `pipeline-step` của notebook. Từ thư mục gốc repo, xuất lại file Python mà Prefect import.
-
-~~~bash
-python scripts/check_project.py --sync-steps
-~~~
-
-`python scripts/check_project.py` và bộ unit test so `pipeline/steps.py` với các cell nguồn. Commit các notebook cùng file Python đã xuất. [Mã đã xuất cho Prefect](../pipeline/steps.py)
+Sửa code trong cell có tag `pipeline-step` rồi lưu notebook. Khi khởi động flow, Prefect nạp các cell này vào bộ nhớ và gọi hàm theo thứ tự. Cell xem dữ liệu, tính tay và bấm chạy thử dành cho người mở notebook. `python scripts/check_project.py` kiểm tra cú pháp của các cell định nghĩa.
 
 Chạy các cell ghi bảng khi Prefect đã dừng. Để công bố một lượt kết quả đầy đủ lên dashboard, chạy flow.
 

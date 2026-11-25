@@ -11,12 +11,12 @@ pytestmark = pytest.mark.integration
 
 @pytest.fixture(scope="module")
 def integration_spark():
-    from steps import get_spark
+    from flow import steps
 
     api = os.environ["PREFECT_API_URL"]
     with urlopen(f"{api.rstrip('/')}/health", timeout=10) as response:
         assert response.status == 200
-    spark = get_spark("lakehouse-integration")
+    spark = steps.get_spark("lakehouse-integration")
     spark.sparkContext.setLogLevel("ERROR")
     try:
         yield spark
@@ -27,7 +27,7 @@ def integration_spark():
 @pytest.fixture
 def isolated_warehouse(integration_spark, monkeypatch):
     import run_state
-    import steps
+    from flow import steps
 
     spark = integration_spark
     prefix = f"ct_{uuid4().hex[:12]}"
@@ -97,9 +97,9 @@ def delivery_rows():
 
 def test_prefect_reruns_after_partial_serving_failure(isolated_warehouse, tmp_path, write_lade_csv, monkeypatch):
     import flow
-    import steps
     from dashboard.serving import TABLES, load_snapshot
 
+    steps = flow.steps
     spark, read, latest_run = isolated_warehouse
     rows = delivery_rows()
     path = write_lade_csv(tmp_path / "orders.csv", rows)
@@ -155,7 +155,7 @@ def test_prefect_reruns_after_partial_serving_failure(isolated_warehouse, tmp_pa
 def test_mysql_lock_loss_is_visible_and_next_attempt_recovers(isolated_warehouse):
     from dashboard.serving import snapshot_status
     import run_state
-    import steps
+    from flow import steps
 
     spark, _read, latest_run = isolated_warehouse
     jdbc = steps._jdbc()

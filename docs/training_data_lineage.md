@@ -102,7 +102,7 @@ Các cửa sổ chồng lấn và nhiều đơn cho mỗi truy vấn giải thí
 3. Chia theo `order_date` dựng từ `accept_ts`. Mặc định train trước **01/10/2022**, test từ ngày đó trở đi. Code tính `courier_train_avg_min` từ nhãn trên toàn train theo shipper rồi gán cho cả train/test. Shipper thiếu lịch sử dùng trung bình toàn train. Do đó, với dòng train, feature này có thể chứa đóng góp của chính nhãn dòng đó.
 4. LR và GBT fit trên `label_log = log1p(delivery_minutes)`. Khi chấm test, code đổi dự đoán về phút bằng `expm1` và chặn dưới tại 0. Hai mốc so sánh là median và trung bình thời lượng trên train.
 
-Phép đo ảnh hưởng của `courier_train_avg_min` dựng lại cohort Spark rồi dùng LightGBM để đối chiếu các cách tạo feature. Đây là thí nghiệm audit riêng với kết quả LR/GBT của pipeline. [Huấn luyện Spark trong pipeline](../pipeline/steps.py) · [Phép đo feature shipper](leak_measurement.md#3-baseline-spark-courier_train_avg_min)
+Phép đo ảnh hưởng của `courier_train_avg_min` dựng lại cohort Spark rồi dùng LightGBM để đối chiếu các cách tạo feature. Đây là thí nghiệm audit riêng với kết quả LR/GBT của pipeline. [Huấn luyện Spark](../notebooks/04_fact_and_ml_gold.ipynb) · [Phép đo feature shipper](leak_measurement.md#3-baseline-spark-courier_train_avg_min)
 
 ### Số dòng dùng để fit và chấm trên CSV Yantai
 
@@ -165,4 +165,4 @@ Báo cáo audit trong `reports/` và các script chạy độc lập là nhánh 
 `run_paper_protocol_pit.py`, `run_paper_protocol_cohort.py` và
 `check_courier_avg_leak.py` đọc CSV để đo độ nhạy ngoại tuyến. Prefect gọi các
 bước huấn luyện ở mục 3.
-[Serving MySQL](../pipeline/steps.py) · [Kiểm tra snapshot của dashboard](../dashboard/serving.py) · [Các phép đo audit](leak_measurement.md)
+[Serving MySQL](../notebooks/05_serving_layer.ipynb) · [Kiểm tra snapshot của dashboard](../dashboard/serving.py) · [Các phép đo audit](leak_measurement.md)

@@ -84,7 +84,7 @@ Repo hiện huấn luyện và chấm theo batch. Dashboard đọc metric đã g
 Khi bỏ thời điểm giao và nhãn của đơn `2641862`, `build_eta_samples()`
 bỏ đơn đó khỏi bảng mẫu. Đường dự đoán lúc nhận cần dựng đặc trưng cho
 đơn còn mở và nạp lại mô hình cùng giá trị điền thiếu đã chốt. Phép đo
-trên Yantai chỉ dùng đơn có nhãn giao hàng từ năm 2022. [Builder mẫu](../src/eta/dataset.py) · [Bước batch](../pipeline/steps.py)
+trên Yantai chỉ dùng đơn có nhãn giao hàng từ năm 2022. [Builder mẫu](../src/eta/dataset.py) · [Bước batch Protocol B](../notebooks/04b_eta_safe.ipynb)
 
 Một hướng để cải thiện ETA vận hành là đo thời gian theo tuyến đường
 và thêm trạng thái hàng chờ đã quan sát. DeepETA của Uber dùng dữ liệu
