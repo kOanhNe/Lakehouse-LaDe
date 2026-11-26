@@ -149,8 +149,9 @@ từ 19/08 đến 24/09/2022. [Nguồn mẫu và đặc trưng](training_data_li
 
 `late_risk` được gắn khi hạn hứa P90 vượt thời hạn được nhập bằng
 `--deadline-minutes`. Ví dụ dùng 360 phút tính từ lúc nhận. Báo cáo lưu
-số đơn được gắn cờ, số đơn giao quá hạn thực tế và giao của hai tập này.
-Quy tắc giúp chọn đơn cần theo dõi theo một mốc vận hành cụ thể.
+tỷ lệ trễ nền, tỷ lệ gắn cờ, precision, recall và lift. Lift là precision
+chia cho tỷ lệ trễ nền. Precision thiếu khi tập gắn cờ rỗng, recall thiếu
+khi tập giao trễ rỗng, và lift cần cả hai tập có dữ liệu.
 
 ### Kết quả trên tập phát triển
 
@@ -185,9 +186,13 @@ rộng hơn 4 giờ và hạn hứa trung vị khoảng 6,5 giờ.
 | Thời lượng thực tế >24 giờ | 594 | 57,07% | 60,27% |
 
 Cỡ lô được tính theo các đơn cùng shipper và phút nhận để cắt lát báo cáo.
-Lát >24 giờ được tính sau dự đoán. Với hạn minh họa 360 phút, mô hình gắn
-cờ 14.419 đơn. Trong số đó, 5.550 đơn thực tế giao quá hạn, tương đương
-38,49% số cờ và 92,86% trong 5.977 đơn thực tế giao quá hạn.
+Lát >24 giờ được tính sau dự đoán. Với hạn minh họa 360 phút, tỷ lệ trễ
+nền là **24,25%** (5.977/24.647). LightGBM gắn cờ **58,50%** số đơn
+(14.419/24.647), trong đó 5.550 đơn thực tế giao quá hạn. Precision là
+**38,49%**, recall **92,86%**, lift **1,59 lần**. Recall cao đi cùng số
+cờ lớn, nên quy tắc này chỉ phù hợp để minh họa một hạn giao cố định.
+Một hàng đợi theo dõi có giới hạn cần phép đo riêng cho điểm xác suất trễ
+đã hiệu chỉnh và ngưỡng theo chi phí xử lý.
 
 Qua seed 42–44, độ phủ gộp 79,80–80,22%, độ rộng trung vị 247–251 phút,
 và đúng hạn P90 90,30–90,59%. Chạy lại seed 42 cho cùng báo cáo và cùng
@@ -197,8 +202,26 @@ chấm. Bảo đảm conformal dựa trên giả định các quan sát có th�
 trong khi dữ liệu chấm theo thời gian có thể đổi phân phối.
 [Conformal khi phân phối thay đổi](https://papers.neurips.cc/paper/2021/hash/0d441de75945e5acbc865406fc9a2559-Abstract.html)
 
-Kết quả phù hợp để demo độ bất định và minh họa cách chọn đơn theo dõi
-trong điều phối. Đánh giá khả năng hứa hạn giao với khách cần một holdout
+Ở cửa sổ 2, có 23 trong 4.713 đơn của nửa conformal (**0,49%**) chưa có
+nhãn tại mốc chấm. Tỷ lệ qua ba cửa sổ dao động từ 0,22% đến 0,49%. Đối
+chứng hồi cứu giữ nguyên mô hình seed 42 và chỉ bổ sung 23 nhãn muộn khi
+tính ngưỡng conformal. Độ phủ cửa sổ 2 tăng từ **76,49% lên 76,55%**.
+Trong khi đó, điểm conformal ở hạng 80% là **11,10 phút** trên nửa hiệu
+chỉnh và **19,26 phút** trên tập chấm với cùng mô hình. Phần hụt độ phủ
+chủ yếu đi cùng dịch chuyển của phân phối điểm theo thời gian. Kết quả
+benchmark dùng ngưỡng tính từ các nhãn đã có tại mốc chấm.
+
+Phép thăm dò Mondrian giữ cùng mô hình seed 42 và tính ngưỡng conformal
+riêng cho lô 1, 2–3 và từ 4 đơn trên phần hiệu chỉnh của mỗi cửa sổ. Với
+lô một đơn, độ phủ tăng từ **76,29% lên 78,94%**, đúng hạn P90 từ
+**88,30% lên 89,92%**, và độ rộng trung vị từ **285,37 lên 296,55 phút**.
+Hiệu chỉnh chung vẫn là cấu hình benchmark. Cỡ lô của phép thăm dò được
+dựng sau khi thấy toàn bộ đơn cùng shipper và phút nhận trong CSV. Khi
+dự đoán từng đơn, hiệu chỉnh theo nhóm cần cỡ lô có sẵn tại lúc dự đoán.
+[Conformal có điều kiện theo nhóm](https://proceedings.mlr.press/v25/vovk12/vovk12.pdf)
+
+Kết quả phù hợp để demo độ bất định và quy tắc gắn cờ theo hạn giao.
+Đánh giá khả năng hứa hạn giao với khách cần một holdout
 theo thời gian và dữ liệu vận hành độc lập. [Giới hạn của holdout Yantai](#6-giới-hạn-của-bản-hàng-chờ-và-lịch-sử)
 
 ~~~powershell
@@ -206,6 +229,7 @@ python -m scripts.experiments.run_eta_accept_benchmark --intervals --seeds 42 43
 ~~~
 
 CSV tổng hợp ghi số dòng và mốc thời gian mỗi giai đoạn, độ phủ trước và
-sau hiệu chỉnh, độ rộng trung bình và trung vị, cùng hạn hứa P90. CSV theo
-đơn sinh từ tùy chọn `--predictions-output` để so tay lại dự đoán và nhãn.
+sau hiệu chỉnh, độ rộng trung bình và trung vị, cùng hạn hứa P90. Khi có
+`--deadline-minutes`, CSV ghi các chỉ số của cờ theo hạn đã nhập. CSV theo
+đơn sinh từ `--predictions-output` để so tay lại dự đoán và nhãn.
 [Kết quả từng cửa sổ, lô, vùng, khung giờ và lát thời lượng](../../reports/eta/eta_accept_intervals_rolling.csv) · [Notebook tính tay](../../notebooks/06_eta_accept.ipynb)

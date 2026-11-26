@@ -206,6 +206,18 @@ def test_conformal_ranks_crossings_and_deadline_flag():
     assert rows.late_risk.tolist() == [True, False]
     assert not calibration.predict(quantiles[:1], deadline_minutes=38.).late_risk.iloc[0]
 
+    scored = rows.assign(**{TARGET: [40., 20.]}, deadline_minutes=37.5, promise_delta_vs_region_hour_min=0.)
+    metrics = benchmark.interval_metrics(scored)
+    assert metrics["deadline_late_base_pct"] == metrics["late_risk_flag_rate_pct"] == 50.
+    assert metrics["late_risk_precision_pct"] == metrics["late_risk_recall_pct"] == 100.
+    assert metrics["late_risk_lift"] == 2.
+    no_flags = benchmark.interval_metrics(scored.assign(late_risk=False))
+    assert no_flags["late_risk_recall_pct"] == 0.
+    assert no_flags["late_risk_precision_pct"] is None and no_flags["late_risk_lift"] is None
+    no_late = benchmark.interval_metrics(scored.assign(**{TARGET: [30., 20.]}))
+    assert no_late["late_risk_precision_pct"] == 0.
+    assert no_late["late_risk_recall_pct"] is None and no_late["late_risk_lift"] is None
+
     shrink = EtaIntervalCalibration.fit(np.full(9, 25.), quantiles)
     tight = shrink.predict(np.array([[29., 30., 31.]]))
     assert tight.lower_80_minutes.iloc[0] == tight.upper_80_minutes.iloc[0] == 30.

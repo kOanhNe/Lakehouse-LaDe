@@ -269,6 +269,23 @@ def run_rolling_origin(source: Path, output: Path, seeds: list[int] | None = Non
     write_report(results, output)
 
 
+def deadline_risk_metrics(scored: pd.DataFrame) -> dict:
+    late_at_deadline = scored[TARGET].gt(scored.deadline_minutes)
+    flagged = int(scored.late_risk.sum())
+    late = int(late_at_deadline.sum())
+    flagged_and_late = int((scored.late_risk & late_at_deadline).sum())
+    base_rate = 100 * late / len(scored)
+    precision = 100 * flagged_and_late / flagged if flagged else None
+    return {
+        "deadline_minutes": scored.deadline_minutes.iloc[0], "flagged_n": flagged,
+        "observed_late_n": late, "flagged_and_late_n": flagged_and_late,
+        "deadline_late_base_pct": base_rate, "late_risk_flag_rate_pct": 100 * flagged / len(scored),
+        "late_risk_precision_pct": precision,
+        "late_risk_recall_pct": 100 * flagged_and_late / late if late else None,
+        "late_risk_lift": precision / base_rate if precision is not None and base_rate else None,
+    }
+
+
 def interval_metrics(scored: pd.DataFrame, bootstrap: dict | None = None) -> dict:
     actual = scored[TARGET]
     width = scored.upper_80_minutes - scored.lower_80_minutes
@@ -286,10 +303,7 @@ def interval_metrics(scored: pd.DataFrame, bootstrap: dict | None = None) -> dic
         "mean_promise_delta_vs_region_hour_min": scored.promise_delta_vs_region_hour_min.mean(),
     }
     if "late_risk" in scored:
-        late_at_deadline = actual.gt(scored.deadline_minutes)
-        flagged_and_late = (scored.late_risk & late_at_deadline).sum()
-        result.update(deadline_minutes=scored.deadline_minutes.iloc[0], flagged_n=scored.late_risk.sum(),
-                      observed_late_n=late_at_deadline.sum(), flagged_and_late_n=flagged_and_late)
+        result.update(deadline_risk_metrics(scored))
     if bootstrap is not None:
         groups = scored.courier_id.astype(str) + "|" + scored.courier_day
         if groups.nunique() >= 2:

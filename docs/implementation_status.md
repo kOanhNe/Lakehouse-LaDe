@@ -96,6 +96,12 @@ B + AOI + GPS. Bản hàng chờ hiện có điểm trên các cửa sổ phát 
 
 Thí nghiệm `--intervals` của Protocol B xuất P10/P50/P90, khoảng 80% và hạn
 hứa P90 đã hiệu chỉnh trên ba cửa sổ phát triển. Notebook 06 đối chiếu một
-đơn với CSV nguồn. Bộ test ngoài integration trên máy phát triển có 41 test
-đạt và 7 test Spark được skip. Báo cáo và dự đoán theo đơn của lượt chạy lại
-seed 42 khớp với lượt nhiều seed. [Kết quả và cách chạy](eta/analysis_limits.md#7-khoảng-eta-lúc-nhận-đơn)
+đơn với CSV nguồn. Báo cáo và dự đoán theo đơn của lượt chạy lại seed 42
+khớp với lượt nhiều seed. [Kết quả và cách chạy](eta/analysis_limits.md#7-khoảng-eta-lúc-nhận-đơn)
+
+| Môi trường kiểm thử unit | Kết quả |
+| --- | --- |
+| Windows `.venv` Python 3.12 trên máy phát triển, thiếu PySpark | `pytest -m "not integration" -q` có 41 đạt và 7 test Spark được bỏ qua. |
+| Môi trường rà soát có PySpark và JVM, commit `2350ea5` | Người rà soát ghi nhận 48 đạt, gồm 7 test Spark. |
+
+Hai kiểm thử integration nằm ngoài phạm vi của hai lượt unit này.
