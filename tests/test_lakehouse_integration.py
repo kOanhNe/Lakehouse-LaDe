@@ -91,6 +91,8 @@ def delivery_rows():
                 "delivery_time": f"{day_prefix} 09:{i * 8 + n % 3:02}:00",
                 "ds": day.strftime("%m%d"),
             })
+    rows[7 * 6]["delivery_time"] = "10-01 00:00:00"
+    rows[8 * 6].update(delivery_time="10-02 10:30:00", accept_gps_time="10-01 08:01:00")
     rows.append({**rows[0], "order_id": "zero", "delivery_time": rows[0]["accept_time"]})
     return rows
 
@@ -133,6 +135,13 @@ def test_prefect_reruns_after_partial_serving_failure(isolated_warehouse, tmp_pa
         assert set(eta_metrics.split) == {"validation"}
         assert set(eta_metrics.evaluation_scope) == {"rolling_validation"}
         assert set(eta_metrics.score_start) == {result["eta_safe"]["score_start"]}
+        predictions = spark.read.format("delta").load(steps.PRED)
+        assert predictions.filter("order_id = '08-0' AND distance_km IS NULL AND delivery_minutes > 1440").count() == 1
+        assert predictions.count() == result["gold"]["test_rows"] == 48
+        assert result["gold"]["unavailable_train_labels"] == 1
+        spark_metrics = tables["ml_metrics"]
+        assert set(spark_metrics.loc[spark_metrics.cohort.eq(steps.SPARK_TEST_ALL), "n"]) == {48}
+        assert set(spark_metrics.loc[spark_metrics.cohort.eq(steps.SPARK_TEST_SHORT), "n"]) == {47}
         return [r.asDict() for r in fact.select("order_id", "courier_sk", "region_sk", "aoi_sk").orderBy("order_id").collect()]
 
     first = flow.delivery_pipeline()

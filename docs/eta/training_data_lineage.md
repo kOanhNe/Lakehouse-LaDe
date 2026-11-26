@@ -8,7 +8,7 @@ Khi pipeline chạy, mỗi nhánh dựng bảng học riêng. **Đặc trưng** 
 | --- | --- | --- | --- |
 | **Protocol P · LightGBM** | Delta `delivery_bronze` | Một cặp (lần truy vấn, đơn còn cầm) | Truy vấn khi shipper vừa giao một đơn. Nhãn là số phút còn lại để giao đơn mục tiêu, giữ cặp có nhãn trong (0, 120]. |
 | **Protocol B · LightGBM** | Delta `delivery_bronze` | Một đơn tại lúc nhận, sau khi lấy mẫu tối đa 12 đơn mỗi shipper mỗi ngày | Truy vấn khi nhận đơn. Nhãn là toàn bộ thời gian từ lúc nhận đến lúc giao. |
-| **Spark LR/GBT** | Delta `fact_delivery_task_gold` dựng từ Silver | Một đơn thuộc tập có GPS hợp lệ, khoảng cách tối đa 50 km và thời lượng tối đa 24 giờ | Truy vấn khi nhận đơn. Đích là `delivery_minutes`, đưa vào mô hình dưới dạng `log1p(delivery_minutes)`. |
+| **Spark LR/GBT** | Bronze để dựng đặc trưng và Delta `fact_delivery_task_gold` để lấy nhãn | Một đơn Fact có nhãn hợp lệ | Truy vấn khi nhận đơn. Nhãn `delivery_minutes` tính bằng phút. |
 
 Ví dụ, một đơn được nhận lúc **08:00** và giao lúc **10:10** có nhãn **130 phút** trong Protocol B và Spark nếu đủ điều kiện vào tập. Nếu shipper giao một đơn khác lúc **09:00**, Protocol P có thể tạo một mẫu cho đơn còn cầm đó với nhãn **70 phút**. Một đơn có thể xuất hiện trong nhiều cặp truy vấn của Protocol P.
 
@@ -60,7 +60,7 @@ Notebook **00** gọi `scripts/checks/profile_delivery.py` trên CSV để thố
 | **03/03b · Dimension** | `delivery_silver` | Dựng lịch sử khu vực của shipper và các bảng tra cứu khu, AOI, ngày, giờ. |
 | **04 · Gold fact** | Silver và năm bảng dimension | Gắn khóa shipper có hiệu lực tại ngày nhận, cùng khóa vùng, AOI, ngày nhận, ngày giao và giờ nhận. `fact_delivery_task_gold` giữ **206.062 dòng**, một dòng mỗi đơn Silver. |
 
-Silver gắn cờ GPS, khoảng cách quá 50 km và thời lượng quá 24 giờ. Những đơn có timestamp hợp lệ và thời lượng dương vẫn được giữ trong Silver và fact. Bộ lọc **24 giờ và 50 km** được áp dụng khi dựng tập học cho Spark LR/GBT. Các bảng Delta nằm dưới `s3a://lakehouse/warehouse/`. [Code lọc Silver](../../notebooks/02_transform_silver.ipynb) · [Code dựng fact và tập Spark](../../notebooks/04_fact.ipynb)
+Silver gắn cờ GPS, khoảng cách quá 50 km và thời lượng quá 24 giờ. Những đơn có timestamp hợp lệ và thời lượng dương được giữ trong Silver và fact. Báo cáo Spark thêm lát **≤24 giờ** sau dự đoán. Các bảng Delta nằm dưới `s3a://lakehouse/warehouse/`. [Code lọc Silver](../../notebooks/02_transform_silver.ipynb) · [Code dựng fact và tập Spark](../../notebooks/04_fact.ipynb)
 
 ### Năm bảng dimension được dựng thế nào
 
@@ -101,17 +101,16 @@ như mục 3.5.
 
 ### 3.3. Spark LR/GBT · baseline thời lượng giao hàng
 
-1. `_train_baseline()` đọc fact. Tập học giữ đơn đủ điều kiện tính khoảng cách, có `delivery_minutes <= 1440` và `distance_km <= 50`. `distance_km` là khoảng cách Haversine từ GPS lúc nhận tới điểm giao đích, với hai vị trí hợp lệ. Cohort Yantai có **201.000 đơn**.
-2. Code tạo giờ nhận dạng số, thứ trong tuần, thứ tự nhận theo shipper/ngày và trung bình lũy kế của khoảng cách tới dòng hiện tại. Các biến số đưa vào mô hình là `distance_km`, `accept_hour`, `dow`, `order_rank`, `cum_avg_dist` và `courier_train_avg_min`. Hai biến phân loại là vùng và loại AOI. Spark học mã hóa từ train, dùng one-hot cho LR và chỉ số phân loại cho GBT.
-3. Chia theo `order_date` dựng từ `accept_ts`. Mặc định train trước **01/10/2022**, test từ ngày đó trở đi. Code tính `courier_train_avg_min` từ nhãn trên toàn train theo shipper rồi gán cho cả train/test. Shipper thiếu lịch sử dùng trung bình toàn train. Do đó, với dòng train, feature này có thể chứa đóng góp của chính nhãn dòng đó.
-4. LR và GBT fit trên `label_log = log1p(delivery_minutes)`. Khi chấm test, code đổi dự đoán về phút bằng `expm1` và chặn dưới tại 0. Hai mốc so sánh là median và trung bình thời lượng trên train.
+1. `spark_baseline_features()` dựng hai loại sự kiện từ Bronze gồm nhận và giao hợp lệ. Window lấy các sự kiện có timestamp nhỏ hơn lúc nhận hiện tại. Hạng nhận và khoảng cách trung bình trong ngày dùng các lần nhận sớm hơn, kể cả đơn còn thiếu nhãn giao. Thời lượng trung bình và số đơn đã giao chỉ dùng lần giao đã quan sát.
+2. GPS nhận có thời điểm ghi tới lúc nhận và tọa độ hợp lệ mới được dùng. Giá trị thiếu đi cùng cờ GPS thiếu. Median điền thiếu, phân loại AOI và vùng được học từ train.
+3. Fact cung cấp nhãn và các khóa báo cáo. Với ngày cắt mặc định **01/10/2022**, train chỉ gồm đơn nhận và đã giao trước ngày đó. Test gồm mọi đơn nhận từ ngày cắt có nhãn hợp lệ trong Fact.
+4. LR và GBT học số phút. GBT dùng absolute loss, 40 cây, step size 0,1, độ sâu 5, tối đa 256 bin và seed 42. Hai mốc so sánh là median và trung bình thời lượng trên train. Báo cáo chấm toàn bộ test và thêm lát ≤1.440 phút từ các dự đoán đã tạo.
 
-Phép đo ảnh hưởng của `courier_train_avg_min` dựng lại cohort Spark rồi dùng LightGBM để đối chiếu các cách tạo feature. Đây là thí nghiệm audit riêng với kết quả LR/GBT của pipeline. [Huấn luyện Spark](../../notebooks/04_fact.ipynb) · [Phép đo feature shipper](leak_measurement.md#3-baseline-spark-courier_train_avg_min)
-
-Trong baseline Spark này, bộ lọc thời lượng 24 giờ chạy trước phép tính
-`order_rank` và `cum_avg_dist`, nên tập đơn dùng tính hai cột phụ thuộc nhãn
-đã quan sát sau giao. GBT mặc định dùng squared loss trên nhãn log. Điểm của
-baseline chỉ mô tả cohort GPS/24 giờ/50 km của nó.
+Cohort GPS/24 giờ/50 km thuộc baseline lịch sử. Khi đó `order_rank` và
+`cum_avg_dist` tính sau bộ lọc nhãn. `courier_train_avg_min` trên dòng
+train có đóng góp từ chính nhãn. GBT cũ học squared loss trên nhãn log.
+Phép audit dùng LightGBM để xấp xỉ ảnh hưởng của trung bình shipper trên
+cohort cũ. [Huấn luyện Spark hiện tại](../../notebooks/04_fact.ipynb) · [Phép đo lịch sử](leak_measurement.md#3-baseline-spark-courier_train_avg_min)
 
 ### Số dòng dùng để fit và chấm trên CSV Yantai
 
@@ -119,13 +118,16 @@ baseline chỉ mô tả cohort GPS/24 giờ/50 km của nó.
 | --- | --- | --- | --- | --- |
 | Protocol P | Cặp truy vấn–đơn theo cửa sổ | 567.672 · `ds` 01/05–18/08 | 202.889 · `ds` 20/08–24/09 | 198.463 · `ds` 26/09–31/10 |
 | Protocol B | Đơn được lấy mẫu tại lúc nhận | 73.125 · nhận 01/05–18/08 | 24.647 · nhận 19/08–24/09 | 25.345 · nhận 25/09–31/10 |
-| Spark LR/GBT | Đơn thuộc cohort GPS/24 giờ/50 km | 165.222 · nhận trước 01/10 | — | 35.778 · nhận từ 01/10 |
+| Spark LR/GBT hiện tại | Đơn Fact có nhãn hợp lệ | 169.412 · nhận và giao trước 01/10 | — | 36.625 · nhận từ 01/10 |
+| Spark LR/GBT lịch sử | Đơn thuộc cohort GPS/24 giờ/50 km | 165.222 · nhận trước 01/10 | — | 35.778 · nhận từ 01/10 |
 
 Các mốc trên dùng năm **2022**, cấu hình lấy mẫu mặc định và CSV có SHA-256
 `aa5bca7fdaa8c89d4ab50a2ed2b94fb09f608acc49fc1108a1a612e9c0f5a7ad`.
 Hai ngày `ds` 19/08 và 25/09 được bỏ ở Protocol P. Tùy chọn
 `--train-end` của Prefect đặt ngày cắt cho Spark LR/GBT. P và B tự chọn mốc
 chia theo danh sách ngày của từng nhánh.
+Trong Spark hiện tại, 25 đơn nhận trước mốc 01/10 có nhãn xuất hiện từ
+mốc đó trở đi. Tập test có 36.060 đơn thuộc lát ≤24 giờ.
 
 Train là tập fit mô hình, validation hướng dẫn dừng sớm của LightGBM, còn test
 dùng để báo sai số trên dữ liệu giữ lại. So sánh MAE trong từng bài toán trên
@@ -208,27 +210,29 @@ python -m scripts.experiments.run_eta_accept_benchmark --rolling-origin
 
 Chế độ `--spark` chạy LightGBM, Spark LR và Spark GBT trên cùng ba cửa sổ,
 cùng mã đơn và cùng bộ đặc trưng hàng chờ và lịch sử. Nhãn là số phút.
-GBT là baseline chưa tinh chỉnh với `lossType="absolute"`, tối đa 80 cây
-và dừng sớm trên tập hiệu chỉnh. CSV lưu điểm dự đoán của từng cửa sổ.
-Để biết số cây thực tế cần ghi thêm `getNumTrees` khi fit. LR dùng
-squared loss. Chỉ sau khi dự đoán mới cắt lát theo ngưỡng 1.440 phút.
-[Mã nguồn GBT Spark 3.5.3](https://github.com/apache/spark/blob/v3.5.3/mllib/src/main/scala/org/apache/spark/ml/regression/GBTRegressor.scala)
+GBT cũ dùng `validationIndicatorCol` với giới hạn 80 cây. `getNumTrees`
+xác nhận mô hình chỉ giữ một cây ở cả ba cửa sổ. GBT hiệu chỉnh fit đủ
+số vòng trên tập train, thử 40 cây với step size 0,05 và 80 cây với
+step size 0,1. Cả hai giữ absolute loss, độ sâu 6 và tối đa 256 bin.
+Cấu hình 80 cây có MAE thấp hơn trên cả ba tập hiệu chỉnh nên được
+chọn để chấm từng cửa sổ tiếp theo. CSV ghi tham số, số cây thực tế và
+MAE hiệu chỉnh của mỗi lần thử. LR dùng squared loss. Lát ≤1.440 phút
+được tính sau dự đoán.
 
-| Mô hình, seed 42 | MAE toàn bộ 24.647 đơn | MAE trên 24.053 đơn ≤1.440 phút | ACC@30 toàn bộ |
+| Mô hình, seed 42 | MAE (phút), 24.647 đơn | MAE (phút), 24.053 đơn ≤1.440 phút | ACC@30 toàn bộ |
 | --- | ---: | ---: | ---: |
 | LightGBM | 103,71 | 90,24 | 31,82% |
 | Spark LR | 129,15 | 113,38 | 17,78% |
-| Spark GBT absolute | 127,41 | 112,13 | 20,43% |
+| Spark GBT dừng sớm, 1 cây | 127,41 | 112,13 | 20,43% |
+| Spark GBT hiệu chỉnh, 80 cây | 126,39 | 111,11 | 20,98% |
 
-Chênh lệch MAE mô tả các cấu hình đã chạy trên tập này. So sánh ở mức
-thuật toán cần kiểm tra số cây thực tế và điều chỉnh tham số Spark bằng
-tập hiệu chỉnh. Notebook 04 công bố baseline Spark trên cohort lịch sử
-của fact với các giới hạn leakage ở mục 3.3.
-[CSV đối chứng Spark](../../reports/eta/eta_accept_spark_rolling.csv)
+LightGBM đạt MAE thấp nhất trong các cấu hình đã thử trên ba cửa sổ phát triển.
+GBT chỉ được khảo sát ở hai cấu hình số cây và step size. Baseline Spark ở
+notebook 04 dùng nguồn đặc trưng, cấu hình và tập chấm nêu ở mục 3.3.
+[CSV đối chứng và số cây](../../reports/eta/eta_accept_spark_calibrated_rolling.csv) · [CSV đối chứng lịch sử](../../reports/eta/eta_accept_spark_rolling.csv)
 
 Trong Spark 3.5.3, `validationTol=0` vẫn cho phép dừng sớm nếu sai số
-hiệu chỉnh tăng. Muốn đo mô hình chạy đủ một số vòng cố định, fit trên
-tập train rồi chấm riêng trên tập hiệu chỉnh.
+hiệu chỉnh tăng. Script dùng thư mục checkpoint tạm cho các lần fit.
 [Điều kiện dừng trong Spark](https://github.com/apache/spark/blob/v3.5.3/mllib/src/main/scala/org/apache/spark/ml/tree/impl/GradientBoostedTrees.scala#L430-L437)
 
 Chạy với image Jupyter đã build. Bài đo chỉ dùng Spark cục bộ trong container.

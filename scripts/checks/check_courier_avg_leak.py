@@ -1,11 +1,11 @@
-"""Đo ảnh hưởng của feature ``courier_train_avg_min`` trong baseline Spark LR/GBT (steps._train_baseline).
+"""Đo ảnh hưởng của feature ``courier_train_avg_min`` trong baseline Spark LR/GBT cũ.
 
-Code Spark hiện tại tính trung bình thời gian giao theo shipper trên TOÀN BỘ tập train rồi gán lại cho
+Baseline cũ tính trung bình thời gian giao theo shipper trên TOÀN BỘ tập train rồi gán lại cho
 chính các dòng train (target encoding trong mẫu: nhãn của dòng nằm trong feature của nó). Script này dựng
 lại đúng cohort ML (train/test khớp số dòng của Spark) và so sánh bằng LightGBM:
 
   1. không có feature đó
-  2. đúng như code hiện tại (trung bình trên toàn train, gồm chính dòng)
+  2. cách của baseline cũ (trung bình trên toàn train, gồm chính dòng)
   3. chỉ dùng đơn của shipper đã GIAO XONG trước thời điểm nhận đơn (point-in-time)
 
 Đây là xấp xỉ bằng pandas + LightGBM, không phải Spark GBT, nên chỉ so sánh tương đối giữa 3 dòng.
@@ -86,5 +86,5 @@ if __name__ == "__main__":
         print(f"{label:62s} MAE={err.abs().mean():7.2f} RMSE={np.sqrt((err ** 2).mean()):7.2f}")
 
     run("không có feature trung bình theo shipper", None)
-    run("trung bình trên toàn train, gồm chính dòng (code hiện tại)", "cta_insample")
+    run("trung bình trên toàn train, gồm chính dòng (baseline cũ)", "cta_insample")
     run("chỉ từ đơn đã giao xong trước lúc nhận đơn (point-in-time)", "cta_past")

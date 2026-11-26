@@ -37,7 +37,7 @@ target_remaining_minutes = delivery_ts - query_ts
 |---|---|---|
 | Protocol P | ETA chính, tái lập LaDe | Tại lúc shipper vừa giao xong một đơn, dự đoán thời gian còn lại của các đơn đang cầm. Đánh giá ngoại tuyến trên cohort nhãn 1–120 phút, với các giới hạn leakage đã công bố trong [audit Protocol P](docs/eta/leak_inventory.md#audit-protocol-p). |
 | Protocol B | Bài toán chính để đánh giá ETA vận hành | Dự đoán thời gian giao ngay khi nhận. Benchmark rolling-origin chấm trên cùng mã đơn và cùng cửa sổ cho các mô hình tại thời điểm nhận. |
-| Spark LR/GBT | Baseline thời lượng giao hàng | Dự đoán `delivery_minutes` từ lúc nhận đơn trên cohort Spark có GPS hợp lệ, khoảng cách tối đa 50 km và thời lượng tối đa 24 giờ. Đọc MAE trong cohort của baseline. |
+| Spark LR/GBT | Baseline thời lượng giao hàng từ Fact | Dự đoán `delivery_minutes` tại lúc nhận. Lịch sử dùng sự kiện đã thấy từ Bronze. Chấm mọi đơn có nhãn hợp lệ từ ngày cắt và tách lát ≤24 giờ sau dự đoán. |
 
 MAE khoảng **20,7 phút** của LightGBM thuộc Protocol P trên Yantai, trung bình qua ba seed. Chỉ xếp hạng các mô hình trong cùng bài toán và cùng tập đánh giá. Protocol B và Spark LR/GBT truy vấn lúc nhận đơn, còn Protocol P truy vấn sau một lần giao xong và dùng tập đánh giá riêng. [Metric Protocol P đã lưu](reports/eta/eta_paper_metrics.csv)
 
@@ -105,7 +105,7 @@ Sơ đồ và chi tiết các bảng nằm trong tài liệu star schema. [Star 
 
 Bronze giữ 17 cột nguồn ở dạng chuỗi. Pipeline kiểm tra header, khóa `order_id` và đối soát khóa giữa CSV đã đọc và Delta Bronze sau khi ghi.
 
-Silver ép kiểu, tính thời lượng, khoảng cách và cờ chất lượng. Timestamp không phân tích được hoặc thời lượng không dương đi vào `delivery_rejected` kèm lý do. Các ngưỡng 24 giờ và 50 km áp dụng ở cohort mô hình Spark. Sau khi ghi, pipeline đọc lại Silver và Rejected để kiểm tra mỗi khóa Bronze xuất hiện đúng một lần trong hai bảng và kiểm tra điều kiện của từng bảng.
+Silver ép kiểu, tính thời lượng, khoảng cách và cờ chất lượng. Timestamp không phân tích được hoặc thời lượng không dương đi vào `delivery_rejected` kèm lý do. Ngưỡng 24 giờ và 50 km là cờ chất lượng. Baseline Spark dùng Fact có nhãn hợp lệ và chỉ dùng ngưỡng 24 giờ để tách lát sau dự đoán. Sau khi ghi, pipeline đọc lại Silver và Rejected để kiểm tra mỗi khóa Bronze xuất hiện đúng một lần trong hai bảng và kiểm tra điều kiện của từng bảng.
 
 Gold gồm `fact_delivery_task_gold` với grain một dòng cho một đơn, các dimension region, AOI, date, hour và lịch sử courier SCD2. Pipeline kiểm tra khóa ngoại và đối soát khóa giữa Silver với fact đã ghi. Các đối soát dùng dữ liệu đọc thực tế.
 
@@ -138,6 +138,8 @@ Kết quả ghi vào `eta_paper_gold` và `eta_paper_metrics_gold`. Đây là k�
 Protocol B ghi vào `eta_safe_gold` và `eta_safe_metrics_gold`. Prefect dùng B + AOI + GPS với hàng chờ và lịch sử gần đây. Bước này chọn nhãn fit và hiệu chỉnh theo thời điểm đã giao rồi công bố điểm trên cửa sổ validation cuối. Dashboard ghi mã biến thể, ngày chấm, MAE, WAPE và ACC@30/60. [Notebook tính tay](notebooks/06_eta_accept.ipynb)
 
 Trên 24.647 đơn validation Yantai ở ba cửa sổ liên tiếp, hàng chờ và lịch sử gần đây đưa MAE trung bình qua ba seed từ **109,52** xuống **104,16 phút**. ACC@30 là **31,88%**. Đây là đánh giá ngoại tuyến trên các đơn được lấy mẫu. [Thiết kế và kết quả](docs/eta/training_data_lineage.md#35-so-sánh-rolling-origin-trên-cùng-mã-đơn)
+
+Trong đối chứng cùng đơn và cùng đặc trưng với seed 42, Spark GBT dừng sớm chỉ giữ một cây và đạt MAE 127,41 phút. GBT chọn 80 cây trên tập hiệu chỉnh đạt 126,39 phút, LightGBM đạt 103,71 phút. [Cấu hình và số cây từng cửa sổ](docs/eta/training_data_lineage.md#đối-chiếu-lightgbm-và-spark)
 
 Cách biến CSV Yantai thành các bảng và tập huấn luyện của từng nhánh nằm trong tài liệu nguồn dữ liệu. [Nguồn dữ liệu huấn luyện](docs/eta/training_data_lineage.md)
 

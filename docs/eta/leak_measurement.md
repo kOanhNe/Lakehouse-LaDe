@@ -38,12 +38,12 @@ Trong tập test bỏ ngưỡng 120, 64,9% cặp có nhãn ≤ 120 phút và ph�
 
 ## 3. Baseline Spark: `courier_train_avg_min`
 
-`steps._train_baseline` tính trung bình thời gian giao theo shipper trên toàn tập train rồi gán lại cho cả các dòng train, nên nhãn của một dòng nằm trong feature của chính nó. `scripts/checks/check_courier_avg_leak.py` dựng lại cohort Yantai (train 165.222, test 35.778, MAE median 127,59 phút, khớp Spark) và dùng LightGBM làm phép xấp xỉ.
+Baseline Spark cũ tính trung bình thời gian giao theo shipper trên toàn tập train rồi gán lại cho cả các dòng train, nên nhãn của một dòng nằm trong feature của chính nó. `scripts/checks/check_courier_avg_leak.py` dựng lại cohort lịch sử Yantai (train 165.222, test 35.778, MAE median 127,59 phút, khớp Spark) và dùng LightGBM làm phép xấp xỉ.
 
 | Cách tính feature với LightGBM | MAE (phút) | RMSE (phút) |
 | --- | ---: | ---: |
 | không có feature | 97,26 | 140,98 |
-| trung bình trên toàn train, gồm chính dòng (code hiện tại) | 91,57 | 135,84 |
+| trung bình trên toàn train, gồm chính dòng (baseline cũ) | 91,57 | 135,84 |
 | lịch sử đã hoàn tất tới lúc nhận, dự phòng bằng trung bình train | 92,58 | 135,13 |
 
 Trong phép xấp xỉ, biến thể dùng lịch sử giảm MAE từ 97,26 xuống 92,58 phút, cao hơn 1,01 phút so với cách tính toàn train. Chênh lệch này đo hai cách tạo feature trong pipeline xấp xỉ, gồm cả việc cập nhật lịch sử theo thời gian và giá trị dự phòng.

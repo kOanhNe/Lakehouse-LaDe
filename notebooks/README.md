@@ -10,7 +10,7 @@
 | [01 · Bronze](01_ingest_bronze.ipynb) | CSV ở MinIO hoặc bản file trong Jupyter | Đường dẫn thực tế được chọn, kiểm tra khóa và các cột gốc trong Delta. |
 | [02 · Silver và Rejected](02_transform_silver.ipynb) | `delivery_bronze` | Quy tắc tách hai bảng, phép tính thời lượng và lý do từ chối. |
 | [03 · Năm dimension](03_dim_courier_silver.ipynb) | `delivery_silver` | Lịch sử shipper SCD2 rồi đến vùng, AOI, ngày và giờ. |
-| [04 · Fact và Spark LR/GBT](04_fact.ipynb) | Silver và năm dimension | Ghép fact, lọc cohort GPS/24 giờ/50 km và điểm riêng của baseline Spark. |
+| [04 · Fact và Spark LR/GBT](04_fact.ipynb) | Silver, năm dimension và các sự kiện từ Bronze | Ghép fact, dựng lịch sử tại lúc nhận, chọn nhãn đã biết và chấm baseline Spark trên toàn bộ Fact sau ngày cắt. |
 | [05 · Serving](05_serving.ipynb) | Fact, dự đoán Spark, ngưỡng đơn trễ và dimension | Bảng MySQL và số dòng đã đối soát. |
 | [06 · ETA lúc nhận](06_eta_accept.ipynb) | CSV để trình bày. Bronze khi chạy qua Prefect. | Mẫu tại lúc nhận, hàng chờ và lịch sử gần đây, phép tính tay và điểm trên cửa sổ validation cuối. |
 | [07 · ETA còn lại](07_eta_paper.ipynb) | Bảy cột của Bronze | Làm sạch quỹ đạo, cohort 1–120 phút và kết quả tái lập Protocol P. |

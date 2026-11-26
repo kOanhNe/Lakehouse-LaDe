@@ -6,6 +6,7 @@ import hashlib
 from datetime import timedelta
 from math import ceil
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 import numpy as np
 import pandas as pd
@@ -169,7 +170,7 @@ def run_rolling_origin(source: Path, output: Path, seeds: list[int] | None = Non
     prereg, orders, registered = load_benchmark_samples(source)
     seeds = seeds or prereg["model"]["seeds"]
     observed = attach_observed_context(registered, orders.reset_index())
-    spark_variants = ("spark_lr", "spark_gbt_absolute")
+    spark_variants = ("spark_lr", "spark_gbt_absolute", "spark_gbt_calibrated")
     if spark is None:
         reference = REFERENCE_VARIANT
         variants = {reference: VARIANTS[reference], **OBSERVED_ACCEPT_VARIANTS}
@@ -195,12 +196,14 @@ def run_rolling_origin(source: Path, output: Path, seeds: list[int] | None = Non
         print(f"Window {fold} [{start}, {end}) | fit={len(train)} "
               f"calibration={len(calibration)} score={len(scored)}", flush=True)
         for (variant, seed), previous in predictions.items():
+            diagnostics = {}
             if seed is None:
                 predicted = region_hour_median(train, scored)
             elif variant in spark_variants:
                 predicted = spark_accept_eta_predictions(
                     spark, observed.loc[train.index], observed.loc[calibration.index],
                     observed.loc[scored.index], variants[variant], variant, seed,
+                    diagnostics=diagnostics,
                 )
             else:
                 frame = registered if variant == REFERENCE_VARIANT else observed
@@ -208,8 +211,9 @@ def run_rolling_origin(source: Path, output: Path, seeds: list[int] | None = Non
                 predicted = model.predict(frame.loc[scored.index])
             previous.append(predicted)
             metrics = rolling_metrics(actual, predicted)
-            results.append({"variant": variant, "seed": seed, **scope, **metrics})
-            print(f"  {variant} seed={seed} MAE={metrics['mae']:.2f}", flush=True)
+            results.append({"variant": variant, "seed": seed, **scope, **metrics, **diagnostics})
+            tree_count = f" trees={diagnostics['gbt_trees']}" if diagnostics else ""
+            print(f"  {variant} seed={seed} MAE={metrics['mae']:.2f}{tree_count}", flush=True)
 
     scored = pd.concat(score_windows, verify_integrity=True)
     actual = scored[TARGET].to_numpy()
@@ -276,11 +280,13 @@ def main() -> None:
                      .config("spark.sql.shuffle.partitions", "8")
                      .config("spark.sql.execution.arrow.pyspark.enabled", "true").getOrCreate())
             spark.sparkContext.setLogLevel("ERROR")
-            output = args.output or ROOT / "reports" / "eta" / "eta_accept_spark_rolling.csv"
-            try:
-                run_rolling_origin(args.source, output, args.seeds or [42], spark=spark)
-            finally:
-                spark.stop()
+            output = args.output or ROOT / "reports" / "eta" / "eta_accept_spark_calibrated_rolling.csv"
+            with TemporaryDirectory(prefix="eta-spark-checkpoints-") as checkpoint_dir:
+                try:
+                    spark.sparkContext.setCheckpointDir(Path(checkpoint_dir).as_uri())
+                    run_rolling_origin(args.source, output, args.seeds or [42], spark=spark)
+                finally:
+                    spark.stop()
         else:
             output = args.output or ROOT / "reports" / "eta" / "eta_accept_benchmark_rolling.csv"
             run_rolling_origin(args.source, output, args.seeds)

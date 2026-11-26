@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -9,6 +10,9 @@ import pandas as pd
 
 from .dataset import TARGET
 from .metrics import regression_metrics
+
+SPARK_GBT_CANDIDATES = ((40, 0.05), (80, 0.10))
+SPARK_GBT_BASELINE = (40, 0.10)
 
 if TYPE_CHECKING:
     from lightgbm import LGBMRegressor
@@ -62,27 +66,61 @@ def fit_accept_eta(train: pd.DataFrame, calibration: pd.DataFrame,
 def spark_accept_eta_predictions(
     spark: SparkSession, train: pd.DataFrame, calibration: pd.DataFrame,
     scored: pd.DataFrame, features: list[str], variant: str, seed: int,
+    *, diagnostics: dict | None = None,
 ) -> np.ndarray:
     """Fit the Spark baselines on the same rows and feature columns as LightGBM."""
     from pyspark.ml.feature import VectorAssembler
     from pyspark.ml.regression import GBTRegressor, LinearRegression
+    from pyspark.sql import functions as F
 
     medians = train[features].median().fillna(0.)
     fit_rows = _accept_inputs(train, medians).astype(float).assign(**{TARGET: train[TARGET]})
     assembler = VectorAssembler(inputCols=features, outputCol="features")
+    trial_stats = []
     if variant == "spark_gbt_absolute":
         calibration_rows = _accept_inputs(calibration, medians).astype(float).assign(**{TARGET: calibration[TARGET]})
-        fit_rows = pd.concat([fit_rows.assign(calibrate=False), calibration_rows.assign(calibrate=True)])
+        combined = pd.concat([fit_rows.assign(calibrate=False), calibration_rows.assign(calibrate=True)])
         estimator = GBTRegressor(
             labelCol=TARGET, lossType="absolute", maxIter=80, maxDepth=6, maxBins=256,
             seed=seed, validationIndicatorCol="calibrate",
         )
+        model = estimator.fit(assembler.transform(spark.createDataFrame(combined)))
+    elif variant == "spark_gbt_calibrated":
+        calibration_rows = _accept_inputs(calibration, medians).astype(float).assign(**{TARGET: calibration[TARGET]})
+        fit = assembler.transform(spark.createDataFrame(fit_rows)).cache()
+        validation = assembler.transform(spark.createDataFrame(calibration_rows)).cache()
+        try:
+            best_mae = np.inf
+            for max_iter, step_size in SPARK_GBT_CANDIDATES:
+                candidate = GBTRegressor(
+                    labelCol=TARGET, lossType="absolute", maxIter=max_iter, stepSize=step_size,
+                    maxDepth=6, maxBins=256, seed=seed,
+                ).fit(fit)
+                prediction = F.greatest(F.col("prediction"), F.lit(0.0))
+                mae = float(candidate.transform(validation).agg(F.avg(F.abs(prediction - F.col(TARGET)))).first()[0])
+                trial_stats.append({
+                    "max_iter": max_iter, "step_size": step_size, "trees": candidate.getNumTrees, "mae": mae,
+                })
+                if mae < best_mae:
+                    model, best_mae = candidate, mae
+        finally:
+            validation.unpersist()
+            fit.unpersist()
     elif variant == "spark_lr":
-        estimator = LinearRegression(labelCol=TARGET)
+        model = LinearRegression(labelCol=TARGET).fit(assembler.transform(spark.createDataFrame(fit_rows)))
     else:
         raise ValueError(f"Unknown Spark ETA variant: {variant}")
 
-    model = estimator.fit(assembler.transform(spark.createDataFrame(fit_rows)))
+    if diagnostics is not None and variant != "spark_lr":
+        diagnostics.update({
+            "gbt_trees": model.getNumTrees,
+            "gbt_max_iter": model.getMaxIter(),
+            "gbt_step_size": model.getStepSize(),
+            "gbt_max_depth": model.getMaxDepth(),
+            "gbt_max_bins": model.getMaxBins(),
+            "gbt_calibration_mae": best_mae if trial_stats else None,
+            "gbt_calibration_trials": json.dumps(trial_stats) if trial_stats else None,
+        })
     inputs = _accept_inputs(scored, medians).astype(float).assign(position=np.arange(len(scored)))
     predictions = model.transform(assembler.transform(spark.createDataFrame(inputs)))
     ordered = predictions.orderBy("position").select("prediction").toPandas()

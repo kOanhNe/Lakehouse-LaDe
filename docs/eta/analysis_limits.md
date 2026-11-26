@@ -24,7 +24,7 @@ Chỉ 3/205 shipper (1,5%) đổi khu vực chính, với 21 lần đổi; nếu
 
 - Protocol P là bài toán tái lập ngoại tuyến để đối chiếu mô tả với bài báo. Tốc độ shipper, tập ứng viên và cửa sổ có phụ thuộc dữ liệu tương lai. Xem [audit Protocol P](leak_inventory.md#audit-protocol-p).
 - Protocol B là bài toán dùng để đánh giá ETA vận hành tại lúc nhận đơn. Phép so với A-lite là nghiên cứu leakage trước đây. Benchmark mới so LightGBM và Spark trên cùng đơn lúc nhận.
-- Spark LR/GBT là baseline thời lượng giao hàng từ lúc nhận đơn, đánh giá trên cohort riêng có GPS hợp lệ, khoảng cách tối đa 50 km và thời lượng tối đa 24 giờ.
+- Spark LR/GBT trong Prefect là baseline thời lượng giao hàng tại lúc nhận. Tập chấm riêng gồm mọi đơn Fact có nhãn hợp lệ từ ngày cắt. Lát ≤24 giờ là báo cáo sau dự đoán. Kết quả Spark trên cùng mẫu Protocol B nằm trong benchmark riêng.
 
 MAE khoảng 20,7 phút mô tả LightGBM trên tập test của Protocol P. Mỗi phép xếp hạng dùng các mô hình có cùng thời điểm truy vấn, nhãn và tập đánh giá. Xem [bảng vai trò trong README](../../README.md#1-bài-toán).
 

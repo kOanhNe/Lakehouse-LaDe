@@ -13,7 +13,8 @@ LABELS = {"median_train": "Trung vị train", "speed": "SPEED", "lightgbm": "Lig
 
 def spark_baseline_metrics(metrics: pd.DataFrame) -> pd.DataFrame:
     """Select rows evaluated on the Spark cohort, including its reference baselines."""
-    return metrics.loc[metrics["cohort"].eq("test (<=24h, GPS hợp lệ)")]
+    cohorts = ["test (tất cả)", "test (<=24h)", "test (<=24h, GPS hợp lệ)"]
+    return metrics.loc[metrics["cohort"].isin(cohorts)]
 
 
 def paper_summary(m: pd.DataFrame) -> pd.DataFrame:

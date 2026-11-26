@@ -122,6 +122,48 @@ def test_haversine_valid_and_invalid_coordinates(local_spark):
     assert all(row.km is None for row in distances[1:])
 
 
+def test_spark_baseline_features_do_not_depend_on_future_labels(local_spark, steps, tmp_path, write_lade_csv):
+    from pyspark.sql import functions as F
+
+    source = write_lade_csv(tmp_path / "baseline.csv", [
+        {"order_id": "done", "delivery_time": "06-04 08:20:00"},
+        {"order_id": "long", "accept_time": "06-04 08:10:00", "delivery_time": "06-06 10:00:00",
+         "accept_gps_lat": 37.6},
+        {"order_id": "unknown-label", "accept_time": "06-04 08:30:00", "delivery_time": "",
+         "accept_gps_lat": 37.4},
+        {"order_id": "ends-at-query", "accept_time": "06-04 08:45:00", "delivery_time": "06-04 09:00:00"},
+        {"order_id": "candidate", "accept_time": "06-04 09:00:00", "delivery_time": "06-05 00:00:00",
+         "accept_gps_time": "06-04 09:01:00"},
+        {"order_id": "peer", "accept_time": "06-04 09:00:00", "delivery_time": "06-04 11:00:00"},
+        {"order_id": "test-long", "accept_time": "06-05 09:00:00", "delivery_time": "06-07 12:00:00",
+         "accept_gps_time": "06-05 09:01:00"},
+    ])
+    bronze = steps.read_bronze_csv(local_spark, source.as_uri())
+    observed = {r.order_id: r for r in steps.spark_baseline_features(bronze).collect()}
+    candidate = observed["candidate"]
+    assert candidate.order_rank == observed["peer"].order_rank == 5
+    assert candidate.courier_completed_count == 1 and candidate.courier_completed_avg_min == 20
+    prior_ids = ("done", "long", "unknown-label", "ends-at-query")
+    assert candidate.courier_prior_distance_km == pytest.approx(
+        sum(observed[order_id].gps_distance_km for order_id in prior_ids) / 4,
+    )
+    assert candidate.gps_missing == 1 and candidate.gps_distance_km is None
+    assert observed["test-long"].order_rank == 1
+
+    hidden = (bronze.filter(~F.col("order_id").isin("peer", "test-long"))
+              .withColumn("delivery_time", F.when(F.col("delivery_time") < "06-04 09:00:00",
+                                                  F.col("delivery_time"))))
+    truncated = steps.spark_baseline_features(hidden).filter(F.col("order_id") == "candidate").first()
+    assert truncated == candidate
+
+    fact, _rejected = steps.split_silver(bronze)
+    fit, score = steps.split_spark_baseline_rows(fact, "2022-06-05")
+    assert {r.order_id for r in fit.select("order_id").collect()} == {"done", "ends-at-query", "peer"}
+    assert [(r.order_id, r.delivery_minutes) for r in score.select("order_id", "delivery_minutes").collect()] == [
+        ("test-long", 3060),
+    ]
+
+
 def test_star_schema_and_fact_foreign_keys(local_spark):
     from lakehouse.common import attach_dimension_keys, build_dimensions
 

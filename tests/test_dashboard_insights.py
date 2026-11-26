@@ -23,11 +23,11 @@ def test_paper_insights_empty_is_safe():
 
 def test_spark_baseline_excludes_legacy_paper_reference():
     frame = pd.DataFrame({
-        "model": ["Linear Regression", "GBT", "Legacy paper benchmark"],
-        "cohort": ["test (<=24h, GPS hợp lệ)", "test (<=24h, GPS hợp lệ)", "theo bài báo"],
-        "mae": [109.88, 92.29, 20.7],
+        "model": ["Linear Regression", "GBT", "GBT", "Legacy paper benchmark"],
+        "cohort": ["test (<=24h, GPS hợp lệ)", "test (tất cả)", "test (<=24h)", "theo bài báo"],
+        "mae": [109.88, 128.2, 101.4, 20.7],
     })
-    assert insights.spark_baseline_metrics(frame).model.tolist() == ["Linear Regression", "GBT"]
+    assert insights.spark_baseline_metrics(frame).cohort.tolist() == frame.cohort.iloc[:3].tolist()
 
 
 def test_overview_and_courier_insights():

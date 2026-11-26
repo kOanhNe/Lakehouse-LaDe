@@ -13,7 +13,8 @@ từ Bronze đến MySQL. Prefect nạp thân hàm từ các cell `pipeline-step
 | Fact và serving | Đối soát khóa giữa Silver và fact đã ghi. So sánh số dòng DataFrame với số dòng đọc lại từ MySQL và xác nhận mã lần chạy. |
 
 Silver giữ các dòng có timestamp hợp lệ và thời lượng dương. Giá trị quá 24 giờ
-hay khoảng cách lớn hơn 50 km được gắn cờ và dùng để xác định cohort mô hình Spark.
+hay khoảng cách lớn hơn 50 km được gắn cờ. Báo cáo Spark dùng ngưỡng 24 giờ
+để tách lát sau dự đoán.
 Với CSV Yantai có SHA-256
 `aa5bca7fdaa8c89d4ab50a2ed2b94fb09f608acc49fc1108a1a612e9c0f5a7ad`,
 các số tham chiếu là 206.431 Bronze, 206.062 Silver và 369 Rejected. Pipeline
@@ -59,10 +60,11 @@ Kết quả kiểm thử của bản ETA lúc nhận được ghi dưới đây.
 
 | Kiểm tra | Kết quả |
 |---|---|
-| Unit trong container Jupyter, `pytest -m "not integration" -q` | 43 đạt, gồm 6 kiểm thử Spark. |
+| Unit trong container Jupyter, `pytest -m "not integration" -q` | 44 đạt, gồm 7 kiểm thử Spark. |
 | Notebook 06 với CSV Yantai | Bảy giá trị tính tay khớp bảng mẫu. Tổng lá cây khớp `predict()`. Điểm của cửa sổ cuối khớp benchmark theo seed. |
 | Bước ETA với Spark/Delta | Ghi và đọc được dự đoán, metric validation và mã lần chạy từ Delta cục bộ. Hàm ghi MySQL dùng bộ thay thế để kiểm tra bảng và dòng nhận được. |
-| Integration toàn flow với Prefect, MinIO và MySQL | Chưa chạy lại trên nhánh ETA này. Lượt sau khi chuyển đường dẫn từng dừng do ổ đĩa máy kiểm thử hết chỗ. |
+| Integration với Prefect, MinIO và MySQL | 2 đạt trong bộ dịch vụ riêng. Flow trên CSV mẫu qua lượt đầu, lỗi ghi serving được chèn và lượt chạy lại. Kiểm thử khóa MySQL cũng đạt. |
+| Đối soát nguồn Yantai bằng Spark | SHA-256 khớp. 206.062 khóa có nhãn hợp lệ ghép được với đặc trưng Bronze. Ngày cắt 01/10/2022 cho 169.412 nhãn fit, 25 nhãn chưa kịp có và 36.625 đơn thuộc tập chấm. Lượt này chỉ đối soát thành viên của tập. |
 | Cấu hình và nguồn notebook | Compose, `config/schema.yaml` và các cell định nghĩa hợp lệ. |
 
 Ở đợt ổn định trước khi chuyển đường dẫn, hai kiểm thử integration đã đạt. Đối
@@ -81,7 +83,11 @@ tái lập ngoại tuyến trên cohort của Protocol P.
 Prefect dùng `protocol_b_queue_history` cho ETA lúc nhận. Mô hình lấy các sự kiện
 trước truy vấn, fit bằng nhãn có trước cửa sổ hiệu chỉnh và công bố validation
 cuối. Kết quả ba cửa sổ và ba seed cho MAE 104,16 phút và ACC@30 31,88%.
-Đối chứng Spark LR/GBT đã chạy trên cùng các đơn, mốc nhận và bộ đặc trưng.
-Bảng Spark của notebook 04 vẫn mô tả cohort GPS/24 giờ/50 km. Holdout đóng
-băng của cấu hình B + AOI + GPS lưu trong báo cáo lịch sử.
+Đối chứng Spark LR/GBT chạy trên cùng các đơn, mốc nhận và bộ đặc trưng B.
+GBT giữ 1 cây khi dừng sớm. Sau khi chọn số cây theo tập hiệu chỉnh, cả
+ba cửa sổ dùng 80 cây và MAE trên tập phát triển giảm từ 127,41 xuống 126,39 phút.
+Baseline Spark của notebook 04 đọc lịch sử đã biết từ Bronze và chỉ fit
+nhãn có trước ngày cắt. Dashboard chấm mọi đơn có nhãn hợp lệ từ ngày cắt
+và trình bày lát ≤24 giờ riêng. Holdout của cấu hình B + AOI + GPS lưu
+trong báo cáo lịch sử.
 [Nguồn mẫu và kết quả](eta/training_data_lineage.md#35-so-sánh-rolling-origin-trên-cùng-mã-đơn)

@@ -247,14 +247,17 @@ with tab_protocol_b:
 
 with tab_spark:
     st.subheader("Spark LR/GBT · Baseline thời lượng giao hàng")
-    st.markdown("Cohort Spark gồm đơn có GPS nhận hợp lệ, khoảng cách tối đa 50 km và thời lượng tối đa 24 giờ. "
-                "So sánh sai số giữa các baseline thuộc cohort này.")
     metrics = tables["ml_metrics"]
+    if metrics.cohort.eq("test (tất cả)").any():
+        st.markdown("Đặc trưng dùng sự kiện đã quan sát tại lúc nhận. Tập chấm gồm các đơn có nhãn hợp lệ "
+                    "từ ngày cắt. Lát ≤24 giờ được tính sau dự đoán.")
+    else:
+        st.caption("Snapshot lịch sử dùng cohort GPS hợp lệ, khoảng cách tối đa 50 km và thời lượng tối đa 24 giờ.")
     st.dataframe(metrics, width="stretch", hide_index=True)
-    plot = metrics.dropna(subset=["mae", "rmse"])
+    plot = metrics.dropna(subset=["mae"])
     if not plot.empty:
-        chart(px.bar(plot, x="model", y=["mae", "rmse"], barmode="group", title="Sai số trên cohort Spark",
-                     labels={"model": "Mô hình", "value": "Phút"}), 400)
+        chart(px.bar(plot, x="model", y="mae", color="cohort", barmode="group", title="MAE của baseline Spark",
+                     labels={"model": "Mô hình", "mae": "Phút", "cohort": "Tập chấm"}), 400)
     imp = tables["ml_feature_importance"]
     if imp is not None and not imp.empty:
         st.subheader("Độ quan trọng feature của GBT phụ")
@@ -262,7 +265,7 @@ with tab_spark:
 
 with tab_data:
     st.subheader("Lineage và trạng thái dữ liệu")
-    st.write("Silver giữ các cờ chất lượng. Ngưỡng 24 giờ và 50 km áp dụng khi dựng cohort mô hình Spark.")
+    st.write("Silver giữ các cờ chất lượng 24 giờ và 50 km. Báo cáo Spark hiện tại dùng ngưỡng 24 giờ để tách lát sau dự đoán.")
     info = tables["pipeline_run_info"]
     if info is not None and not info.empty:
         st.dataframe(info, width="stretch", hide_index=True)
