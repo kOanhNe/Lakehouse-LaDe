@@ -93,3 +93,9 @@ step size 0,10 và độ sâu 5 với bộ đặc trưng riêng từ Bronze và 
 trình bày lát ≤24 giờ riêng. Holdout trong báo cáo lịch sử thuộc cấu hình
 B + AOI + GPS. Bản hàng chờ hiện có điểm trên các cửa sổ phát triển.
 [Nguồn mẫu và kết quả](eta/training_data_lineage.md#35-so-sánh-rolling-origin-trên-cùng-mã-đơn)
+
+Thí nghiệm `--intervals` của Protocol B xuất P10/P50/P90, khoảng 80% và hạn
+hứa P90 đã hiệu chỉnh trên ba cửa sổ phát triển. Notebook 06 đối chiếu một
+đơn với CSV nguồn. Bộ test ngoài integration trên máy phát triển có 41 test
+đạt và 7 test Spark được skip. Báo cáo và dự đoán theo đơn của lượt chạy lại
+seed 42 khớp với lượt nhiều seed. [Kết quả và cách chạy](eta/analysis_limits.md#7-khoảng-eta-lúc-nhận-đơn)

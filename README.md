@@ -146,6 +146,8 @@ Trong benchmark seed 42, Spark GBT và LightGBM cùng dùng bộ đặc trưng h
 
 Cách biến CSV Yantai thành các bảng và tập huấn luyện của từng nhánh nằm trong tài liệu nguồn dữ liệu. [Nguồn dữ liệu huấn luyện](docs/eta/training_data_lineage.md)
 
+Benchmark Protocol B có chế độ `--intervals` để đo độ phủ, độ rộng khoảng 80% và tỷ lệ trễ theo hạn P90. Ví dụ trong Notebook 06 đối chiếu một đơn từ CSV Yantai và gắn cờ nguy cơ trễ theo thời hạn được cung cấp. [Cách chạy và giới hạn](docs/eta/analysis_limits.md#7-khoảng-eta-lúc-nhận-đơn)
+
 ## 6. Cài đặt
 
 Yêu cầu:

@@ -1,4 +1,5 @@
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import pandas as pd
@@ -7,9 +8,10 @@ import pytest
 from scripts.experiments import run_eta_accept_benchmark as benchmark
 from eta.dataset import (
     QUEUE_HISTORY_VARIANT, TARGET, build_accept_time_features, build_eta_samples, build_protocol_b_samples,
-    read_lade_csv, rolling_origin_rows, validation_rows,
+    read_lade_csv, rolling_origin_rows, split_interval_calibration, validation_rows,
 )
 from eta.features import build_observed_accept_features
+from eta.intervals import EtaIntervalCalibration, QUANTILE_LEVELS
 from eta.metrics import accept_eta_metrics, paired_cluster_bootstrap
 from eta import model as eta_model
 
@@ -188,3 +190,86 @@ def test_rolling_report_preserves_model_seed_when_recording_bootstrap(write_lade
     row = result.loc[result.scope.eq("pooled") & result.variant.eq(QUEUE_HISTORY_VARIANT)].iloc[0]
     assert row.seed == 43 and row.bootstrap_seed == 2022
     assert row.n == 4 and row.clusters == 4 and row.mae == 0
+
+
+def test_conformal_ranks_crossings_and_deadline_flag():
+    quantiles = np.tile([20., 25., 30.], (9, 1))
+    calibration = EtaIntervalCalibration.fit(np.arange(30., 39.), quantiles)
+    assert calibration.interval_offset_min == 7
+    assert calibration.promise_offset_min == 8
+
+    rows = calibration.predict(np.array([[30., 20., 25.], [-5., 3., 1.]]), deadline_minutes=37.5)
+    assert rows.p50_minutes.tolist() == [25., 1.]
+    assert rows.lower_80_minutes.tolist() == [13., 0.]
+    assert rows.upper_80_minutes.tolist() == [37., 10.]
+    assert rows.promise_p90_minutes.tolist() == [38., 11.]
+    assert rows.late_risk.tolist() == [True, False]
+    assert not calibration.predict(quantiles[:1], deadline_minutes=38.).late_risk.iloc[0]
+
+    shrink = EtaIntervalCalibration.fit(np.full(9, 25.), quantiles)
+    tight = shrink.predict(np.array([[29., 30., 31.]]))
+    assert tight.lower_80_minutes.iloc[0] == tight.upper_80_minutes.iloc[0] == 30.
+    assert tight.promise_p90_minutes.iloc[0] == 30.
+    with pytest.raises(ValueError, match="Too few calibration labels"):
+        EtaIntervalCalibration.fit(np.arange(30., 38.), quantiles[:8])
+
+
+def test_interval_calibration_keeps_days_together_and_censors_late_tuning_labels():
+    rows = pd.DataFrame({
+        "order_id": ["early", "late", "same-day", "conformal", "last"],
+        "query_ts": pd.to_datetime(["2022-06-01 08:00", "2022-06-02 08:00", "2022-06-02 08:00",
+                                    "2022-06-03 08:00", "2022-06-04 08:00"]),
+    })
+    orders = rows.assign(delivery_ts=pd.to_datetime([
+        "2022-06-01 09:00", "2022-06-03 00:00", "2022-06-02 09:00", "2022-06-03 09:00", "2022-06-04 09:00",
+    ])).set_index("order_id")
+    tuning, conformal = split_interval_calibration(rows, orders)
+    assert tuning.order_id.tolist() == ["early", "same-day"]
+    assert conformal.order_id.tolist() == ["conformal", "last"]
+
+
+def test_region_hour_quantiles_fall_back_to_fit_history_for_sparse_buckets():
+    durations = np.append(np.arange(1., 31.), 300.)
+    fit = pd.DataFrame({"candidate_region_id": [1] * 30 + [2], "accept_hour": 8., TARGET: durations})
+    scored = pd.DataFrame({"candidate_region_id": [1, 2, 1, None], "accept_hour": [10., 8., 12., 8.]})
+    expected = np.vstack([np.quantile(durations[:30], QUANTILE_LEVELS),
+                          np.tile(np.quantile(durations, QUANTILE_LEVELS), (3, 1))])
+    np.testing.assert_allclose(benchmark.region_hour_quantiles(fit, scored), expected)
+
+
+def test_interval_report_scores_only_registered_development_orders(write_lade_csv, tmp_path, monkeypatch):
+    rows = []
+    for day in pd.date_range("2022-05-01", periods=60):
+        for courier in (1, 2, 3):
+            rows.append({"order_id": f"{courier}-{day:%m%d}", "courier_id": courier,
+                         "accept_time": f"{day:%m-%d} 08:00:00", "delivery_time": f"{day:%m-%d} 09:00:00"})
+    source = write_lade_csv(tmp_path / "yantai.csv", rows)
+    orders = read_lade_csv(source).set_index("order_id")
+    config = {"max_queries_per_courier_day": 12, "query_seed": 42}
+    samples = build_protocol_b_samples(orders.reset_index(), config)
+    prereg = {"bootstrap": {"n_resamples": 10, "seed": 2022}}
+    monkeypatch.setattr(benchmark, "load_benchmark_samples", lambda _: (prereg, orders, samples))
+
+    levels = []
+
+    def fit(train, tuning, features, seed, objective, params):
+        assert seed == 43 and objective == "quantile" and params["metric"] == "quantile"
+        level = params["alpha"]
+        levels.append(level)
+        assert train.order_id.map(orders.delivery_ts).max() < tuning.query_ts.min().normalize()
+        return SimpleNamespace(estimator=SimpleNamespace(best_iteration_=10),
+                               predict=lambda frame: np.full(len(frame), 50. + 20. * level))
+
+    monkeypatch.setattr(benchmark, "fit_accept_eta", fit)
+    output, per_order = tmp_path / "intervals.csv", tmp_path / "per-order.csv"
+    benchmark.run_interval_benchmark(source, output, seeds=[43], predictions_output=per_order, deadline_minutes=55.)
+
+    assert levels == list(QUANTILE_LEVELS) * 3
+    report = pd.read_csv(output)
+    candidate = report.loc[report.scope.eq("pooled") & report.variant.eq(QUEUE_HISTORY_VARIANT)].iloc[0]
+    assert candidate.seed == 43 and candidate.bootstrap_seed == 2022
+    assert candidate.interval_coverage_pct == candidate.promise_coverage_pct == 100
+    predicted = pd.read_csv(per_order).loc[lambda frame: frame.variant.eq(QUEUE_HISTORY_VARIANT)]
+    assert predicted.order_id.is_unique
+    assert set(predicted.order_id) == set(samples.loc[samples.split.eq("validation"), "order_id"])
+    assert predicted.late_risk.all() and candidate.flagged_n == len(predicted)

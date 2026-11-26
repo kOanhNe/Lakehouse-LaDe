@@ -239,6 +239,19 @@ def rolling_origin_rows(samples: pd.DataFrame, orders: pd.DataFrame, *, last_onl
         yield train, calibration, samples.loc[days.isin(window)]
 
 
+def split_interval_calibration(calibration: pd.DataFrame, orders: pd.DataFrame):
+    """Split the rolling calibration days into early stopping and conformal days."""
+    days = calibration.query_ts.dt.normalize()
+    unique_days = pd.DatetimeIndex(days.unique()).sort_values()
+    if len(unique_days) < 2:
+        raise ValueError("Interval evaluation requires separate early-stopping and conformal dates")
+    conformal_start = unique_days[len(unique_days) // 2]
+    early_stopping = labels_available_before(calibration.loc[days.lt(conformal_start)], orders, conformal_start)
+    if early_stopping.empty:
+        raise ValueError(f"No early-stopping labels available before {conformal_start.date()}")
+    return early_stopping, calibration.loc[days.ge(conformal_start)]
+
+
 def flow_evaluation_rows(samples: pd.DataFrame, orders: pd.DataFrame):
     """Publish the last development window, with calibration for short datasets."""
     earlier_dates = samples.loc[samples.split.eq("train"), "query_ts"].dt.normalize().nunique()

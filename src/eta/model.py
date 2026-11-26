@@ -55,11 +55,11 @@ class AcceptEtaModel:
 
 
 def fit_accept_eta(train: pd.DataFrame, calibration: pd.DataFrame,
-                   features: list[str], seed: int = 42) -> AcceptEtaModel:
+                   features: list[str], seed: int = 42, **fit_options) -> AcceptEtaModel:
     medians = train[features].median()
     fit_rows = _accept_inputs(train, medians).assign(**{TARGET: train[TARGET]})
     calibration_rows = _accept_inputs(calibration, medians).assign(**{TARGET: calibration[TARGET]})
-    estimator = fit_lightgbm(fit_rows, calibration_rows, features, seed=seed)
+    estimator = fit_lightgbm(fit_rows, calibration_rows, features, seed=seed, **fit_options)
     return AcceptEtaModel(estimator, medians)
 
 

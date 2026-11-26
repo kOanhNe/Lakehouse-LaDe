@@ -32,13 +32,23 @@ def paired_cluster_bootstrap(frame: pd.DataFrame, truth: str, left: str, right: 
     missing = required - set(frame.columns)
     if missing:
         raise ValueError(f"Missing bootstrap columns: {sorted(missing)}")
-    if frame[cluster].isna().any():
-        raise ValueError("Every paired observation needs a cluster")
     y = frame[truth].to_numpy(float)
     difference = np.abs(frame[left].to_numpy(float) - y) - np.abs(frame[right].to_numpy(float) - y)
-    if not np.isfinite(difference).all():
-        raise ValueError("Paired outcomes and predictions must be finite")
-    by_cluster = pd.Series(difference, index=frame.index).groupby(frame[cluster], sort=True).agg(["sum", "size"])
+    result = cluster_mean_bootstrap(difference, frame[cluster], n_boot=n_boot, seed=seed)
+    return {"clusters": result["clusters"], "pairs": int(len(frame)),
+            "difference_mae_left_minus_right": result["mean"],
+            "ci95_low": result["ci95_low"], "ci95_high": result["ci95_high"], "seed": seed, "n_boot": n_boot}
+
+
+def cluster_mean_bootstrap(values, groups, *, n_boot: int, seed: int) -> dict:
+    """Resample whole clusters and weight each draw by its number of orders."""
+    values = pd.Series(np.asarray(values, dtype=float))
+    groups = pd.Series(groups).reset_index(drop=True)
+    if len(values) != len(groups) or groups.isna().any():
+        raise ValueError("Every observation needs a cluster")
+    if not np.isfinite(values).all() or n_boot < 1:
+        raise ValueError("Bootstrap requires finite observations and a positive number of draws")
+    by_cluster = values.groupby(groups, sort=True).agg(["sum", "size"])
     clusters = len(by_cluster)
     if clusters < 2:
         raise ValueError("At least two clusters are required")
@@ -49,7 +59,5 @@ def paired_cluster_bootstrap(frame: pd.DataFrame, truth: str, left: str, right: 
     for i in range(n_boot):
         sample = rng.integers(0, clusters, clusters)
         estimates[i] = totals[sample].sum() / sizes[sample].sum()
-    return {"clusters": clusters, "pairs": int(len(frame)),
-            "difference_mae_left_minus_right": float(totals.sum() / sizes.sum()),
-            "ci95_low": float(np.quantile(estimates, .025)), "ci95_high": float(np.quantile(estimates, .975)),
-            "seed": seed, "n_boot": n_boot}
+    return {"clusters": clusters, "mean": float(totals.sum() / sizes.sum()),
+            "ci95_low": float(np.quantile(estimates, .025)), "ci95_high": float(np.quantile(estimates, .975))}

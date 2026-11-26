@@ -124,3 +124,88 @@ hứa một ETA trong vòng ±30 phút cho khách. Dữ liệu Yantai thiếu s�
 hủy đơn, nên đơn đã nhận có thể còn trong hàng chờ khi thiếu lần giao hợp
 lệ. Đo độ phủ phân vị và thử nghiệm dự báo có dấu thời gian lúc nhận là
 các phép đánh giá riêng. [Chi tiết mẫu và kết quả](training_data_lineage.md#35-so-sánh-rolling-origin-trên-cùng-mã-đơn)
+
+## 7. Khoảng ETA lúc nhận đơn
+
+Thí nghiệm dùng `data/delivery_yt.csv` đã kiểm tra SHA-256 theo `prereg.yaml`,
+cùng mã đơn và bộ đặc trưng `protocol_b_queue_history` ở mục 6. Nhãn là số
+phút từ nhận đến giao. Tập chấm gồm 24.647 đơn trong ba cửa sổ phát triển
+từ 19/08 đến 24/09/2022. [Nguồn mẫu và đặc trưng](training_data_lineage.md#35-so-sánh-rolling-origin-trên-cùng-mã-đơn)
+
+1. Mỗi cửa sổ dùng phần fit của rolling-origin. Các ngày trong tập hiệu chỉnh
+   được chia đôi theo thứ tự thời gian. Nửa đầu dùng để dừng sớm theo quantile
+   loss, nửa sau dùng để tính hiệu chỉnh conformal. Nhãn phải có trước mốc
+   bắt đầu giai đoạn kế tiếp.
+2. LightGBM học P10, P50 và P90 bằng ba mô hình quantile. Giá trị thiếu được
+   điền bằng median trên tập fit. Ba dự đoán được đưa về không âm và sắp thứ
+   tự trước khi hiệu chỉnh. Mốc vùng–giờ lấy ba phân vị của nhãn fit theo
+   vùng và khung giờ 4 tiếng. Nhóm có dưới 30 đơn dùng phân vị của toàn bộ fit.
+3. Khoảng 80% dùng điểm `max(P10 - y, y - P90)`. Với `n` nhãn conformal,
+   lấy điểm ở hạng `ceil(0,80 × (n + 1))` theo thứ tự tăng dần. Trừ giá trị
+   này khỏi P10 và cộng vào P90. Cận dưới tối thiểu bằng 0 và khoảng luôn
+   chứa P50. Hạn hứa P90 hiệu chỉnh riêng bằng điểm `y - P90` ở hạng
+   `ceil(0,90 × (n + 1))`. Hạn hứa tối thiểu bằng P50. Hai phương án dùng
+   cùng cách hiệu chỉnh trên cùng các đơn. [Romano, Patterson và Candès (2019)](https://proceedings.neurips.cc/paper_files/paper/2019/file/5103c3584b063c431bd1268e9b5e76fb-Paper.pdf)
+
+`late_risk` được gắn khi hạn hứa P90 vượt thời hạn được nhập bằng
+`--deadline-minutes`. Ví dụ dùng 360 phút tính từ lúc nhận. Báo cáo lưu
+số đơn được gắn cờ, số đơn giao quá hạn thực tế và giao của hai tập này.
+Quy tắc giúp chọn đơn cần theo dõi theo một mốc vận hành cụ thể.
+
+### Kết quả trên tập phát triển
+
+Kết quả dưới đây dùng seed 42 và LightGBM 4.7.0. Khoảng tin cậy 95% dùng
+2.000 lượt bootstrap theo 3.579 cụm shipper–ngày.
+
+| Mô hình | Độ phủ trước hiệu chỉnh | Độ phủ sau hiệu chỉnh (KTC 95%) | Rộng trung bình (phút) | Rộng trung vị (phút) | Trần khoảng trung vị (phút) |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| LightGBM, khoảng 80% | 71,54% | 79,80% (79,14–80,48%) | 299,63 | 247,00 | 374,55 |
+| Vùng–giờ, khoảng 80% | 78,63% | 79,98% (79,31–80,60%) | 429,79 | 378,00 | 465,80 |
+
+| Mô hình | Đúng hạn P90 | Trễ hạn P90 | Hạn P90 trung bình (phút) | Hạn P90 trung vị (phút) |
+| --- | ---: | ---: | ---: | ---: |
+| LightGBM | 90,59% | 9,41% | 454,68 | 391,88 |
+| Vùng–giờ | 90,60% | 9,40% | 518,04 | 485,80 |
+
+LightGBM thu hẹp độ rộng trung vị **34,7%** ở mức phủ gộp gần nhau.
+Với tỷ lệ đúng hạn P90 xấp xỉ bằng nhau, hạn hứa ngắn hơn **93,92 phút
+ở trung vị (19,3%)** và **63,36 phút ở trung bình**. Khoảng điển hình vẫn
+rộng hơn 4 giờ và hạn hứa trung vị khoảng 6,5 giờ.
+
+| Lát của LightGBM, seed 42 | Số đơn | Độ phủ khoảng 80% | Đúng hạn P90 |
+| --- | ---: | ---: | ---: |
+| 19–31/08 | 8.642 | 80,50% | 90,72% |
+| 01–12/09 | 8.395 | 76,49% | 88,15% |
+| 13–24/09 | 7.610 | 82,65% | 93,14% |
+| Lô một đơn | 6.639 | 76,29% | 88,30% |
+| Lô 2–3 đơn | 8.628 | 80,35% | 90,99% |
+| Lô từ 4 đơn | 9.380 | 81,77% | 91,84% |
+| Nhận từ 04:00 đến trước 08:00 | 328 | 70,12% | 81,10% |
+| Vùng 162 | 571 | 59,19% | 63,92% |
+| Thời lượng thực tế >24 giờ | 594 | 57,07% | 60,27% |
+
+Cỡ lô được tính theo các đơn cùng shipper và phút nhận để cắt lát báo cáo.
+Lát >24 giờ được tính sau dự đoán. Với hạn minh họa 360 phút, mô hình gắn
+cờ 14.419 đơn. Trong số đó, 5.550 đơn thực tế giao quá hạn, tương đương
+38,49% số cờ và 92,86% trong 5.977 đơn thực tế giao quá hạn.
+
+Qua seed 42–44, độ phủ gộp 79,80–80,22%, độ rộng trung vị 247–251 phút,
+và đúng hạn P90 90,30–90,59%. Chạy lại seed 42 cho cùng báo cáo và cùng
+dự đoán theo đơn. Chênh lệch độ phủ giữa các cửa sổ lớn hơn độ rộng của
+khoảng tin cậy gộp. Bootstrap mô tả biến động lấy mẫu trong giai đoạn đã
+chấm. Bảo đảm conformal dựa trên giả định các quan sát có thể hoán đổi,
+trong khi dữ liệu chấm theo thời gian có thể đổi phân phối.
+[Conformal khi phân phối thay đổi](https://papers.neurips.cc/paper/2021/hash/0d441de75945e5acbc865406fc9a2559-Abstract.html)
+
+Kết quả phù hợp để demo độ bất định và minh họa cách chọn đơn theo dõi
+trong điều phối. Đánh giá khả năng hứa hạn giao với khách cần một holdout
+theo thời gian và dữ liệu vận hành độc lập. [Giới hạn của holdout Yantai](#6-giới-hạn-của-bản-hàng-chờ-và-lịch-sử)
+
+~~~powershell
+python -m scripts.experiments.run_eta_accept_benchmark --intervals --seeds 42 43 44 --deadline-minutes 360 --predictions-output reports/eta/eta_predictions_intervals.csv
+~~~
+
+CSV tổng hợp ghi số dòng và mốc thời gian mỗi giai đoạn, độ phủ trước và
+sau hiệu chỉnh, độ rộng trung bình và trung vị, cùng hạn hứa P90. CSV theo
+đơn sinh từ tùy chọn `--predictions-output` để so tay lại dự đoán và nhãn.
+[Kết quả từng cửa sổ, lô, vùng, khung giờ và lát thời lượng](../../reports/eta/eta_accept_intervals_rolling.csv) · [Notebook tính tay](../../notebooks/06_eta_accept.ipynb)
