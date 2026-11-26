@@ -104,7 +104,7 @@ như mục 3.5.
 1. `spark_baseline_features()` dựng hai loại sự kiện từ Bronze gồm nhận và giao hợp lệ. Window lấy các sự kiện có timestamp nhỏ hơn lúc nhận hiện tại. Hạng nhận và khoảng cách trung bình trong ngày dùng các lần nhận sớm hơn, kể cả đơn còn thiếu nhãn giao. Thời lượng trung bình và số đơn đã giao chỉ dùng lần giao đã quan sát.
 2. GPS nhận có thời điểm ghi tới lúc nhận và tọa độ hợp lệ mới được dùng. Giá trị thiếu đi cùng cờ GPS thiếu. Median điền thiếu, phân loại AOI và vùng được học từ train.
 3. Fact cung cấp nhãn và các khóa báo cáo. Với ngày cắt mặc định **01/10/2022**, train chỉ gồm đơn nhận và đã giao trước ngày đó. Test gồm mọi đơn nhận từ ngày cắt có nhãn hợp lệ trong Fact.
-4. LR và GBT học số phút. GBT dùng absolute loss, 40 cây, step size 0,1, độ sâu 5, tối đa 256 bin và seed 42. Hai mốc so sánh là median và trung bình thời lượng trên train. Báo cáo chấm toàn bộ test và thêm lát ≤1.440 phút từ các dự đoán đã tạo.
+4. LR và GBT học số phút. Đầu vào gồm tám cột số trong `SPARK_BASELINE_FEATURES` cùng AOI và vùng. GBT dùng absolute loss, 40 cây, step size 0,10, độ sâu 5, tối đa 256 bin và seed 42. Hai mốc so sánh là median và trung bình thời lượng trên train. Báo cáo chấm toàn bộ test và thêm lát ≤1.440 phút từ các dự đoán đã tạo. Dashboard đọc các điểm này từ `ml_metrics` theo lần chạy Prefect.
 
 Cohort GPS/24 giờ/50 km thuộc baseline lịch sử. Khi đó `order_rank` và
 `cum_avg_dist` tính sau bộ lọc nhãn. `courier_train_avg_min` trên dòng
@@ -127,7 +127,16 @@ Hai ngày `ds` 19/08 và 25/09 được bỏ ở Protocol P. Tùy chọn
 `--train-end` của Prefect đặt ngày cắt cho Spark LR/GBT. P và B tự chọn mốc
 chia theo danh sách ngày của từng nhánh.
 Trong Spark hiện tại, 25 đơn nhận trước mốc 01/10 có nhãn xuất hiện từ
-mốc đó trở đi. Tập test có 36.060 đơn thuộc lát ≤24 giờ.
+mốc đó trở đi. Điều kiện `delivery_ts < cutoff` loại chúng khỏi tập fit.
+Lần giao chỉ cập nhật `courier_completed_count` và `courier_completed_avg_min`
+ở các truy vấn có thời điểm nhận sau lần giao đó. Tập test có 36.060 đơn
+thuộc lát ≤24 giờ.
+
+Đối soát bằng Spark trên CSV đúng checksum che riêng `delivery_time` của
+25 đơn và giữ các sự kiện nhận. Cả hai đặc trưng hoàn tất cho kết quả trùng
+trên **169.736 truy vấn Bronze trước ngày cắt**. Từ ngày cắt trở đi, có
+2.684 truy vấn đổi số đơn đã giao khi che các sự kiện này, phù hợp với việc
+cập nhật lịch sử khi lần giao được quan sát.
 
 Train là tập fit mô hình, validation hướng dẫn dừng sớm của LightGBM, còn test
 dùng để báo sai số trên dữ liệu giữ lại. So sánh MAE trong từng bài toán trên
@@ -190,9 +199,12 @@ cùng shipper. Timestamp nhận có độ phân giải phút.
 | Thêm cả lô cùng phút | 104,90 | 36,52% | 31,82% | 54,24% |
 
 Các hàng LightGBM lấy trung bình qua seed 42–44 trên **24.647 đơn
-validation**. Với seed 42, hàng chờ và lịch sử giảm MAE **6,08 phút** so
-với cấu hình lịch sử B + AOI + GPS. Bootstrap ghép cặp theo 3.579 cụm
+validation**. Thêm hàng chờ và lịch sử vào bộ B + AOI + GPS dựng theo sự
+kiện giảm MAE từ **109,82 xuống 104,16 phút**. So với cấu hình lịch sử,
+mức giảm trung bình là **5,36 phút**. Với seed 42, mức giảm so với cấu
+hình lịch sử là **6,08 phút**. Bootstrap ghép cặp theo 3.579 cụm
 shipper–ngày cho khoảng 95% từ **−7,50 đến −4,73 phút** với 2.000 lượt.
+Các cửa sổ này dùng để phát triển đặc trưng `protocol_b_queue_history`.
 WAPE là tổng sai số tuyệt đối chia tổng thời lượng thực tế. CSV có điểm
 từng cửa sổ, kích thước lô, khung bốn giờ, vùng và nhóm thời lượng. Hai
 nhóm thời lượng được tách sau khi dự đoán. [Kết quả rolling-origin](../../reports/eta/eta_accept_benchmark_rolling.csv)
@@ -226,10 +238,20 @@ MAE hiệu chỉnh của mỗi lần thử. LR dùng squared loss. Lát ≤1.440
 | Spark GBT dừng sớm, 1 cây | 127,41 | 112,13 | 20,43% |
 | Spark GBT hiệu chỉnh, 80 cây | 126,39 | 111,11 | 20,98% |
 
-LightGBM đạt MAE thấp nhất trong các cấu hình đã thử trên ba cửa sổ phát triển.
-GBT chỉ được khảo sát ở hai cấu hình số cây và step size. Baseline Spark ở
-notebook 04 dùng nguồn đặc trưng, cấu hình và tập chấm nêu ở mục 3.3.
+Spark GBT hiệu chỉnh cao hơn LightGBM **22,68 phút** trên cùng đơn và
+cùng đặc trưng. Khoảng tin cậy bootstrap ghép cặp 95% theo cụm
+shipper–ngày từ **20,03 đến 25,68 phút**. Hai cấu hình GBT đều dùng
+absolute loss và thay đồng thời số cây cùng step size. Ảnh hưởng riêng
+của loss và step size chưa được đo. Kết quả mô tả các cấu hình đã thử.
 [CSV đối chứng và số cây](../../reports/eta/eta_accept_spark_calibrated_rolling.csv) · [CSV đối chứng lịch sử](../../reports/eta/eta_accept_spark_rolling.csv)
+
+| Nguồn kết quả GBT | Đặc trưng và tập chấm mặc định | Cây · step size · độ sâu | Nguồn MAE |
+| --- | --- | --- | --- |
+| Notebook 04 trong Prefect | Tám cột số cùng AOI và vùng. 36.625 đơn Fact Yantai từ 01/10/2022. | 40 · 0,10 · 5 | `ml_metrics` của lần chạy pipeline |
+| Benchmark cùng mẫu Protocol B | Cùng bộ `protocol_b_queue_history` với LightGBM. 24.647 đơn validation Yantai từ 19/08 đến 24/09/2022. | 80 · 0,10 · 6 | 126,39 phút trong CSV benchmark |
+
+Spark LR/GBT trong Prefect là baseline tham chiếu của Fact. Benchmark dùng
+cấu hình Spark đã hiệu chỉnh trên mẫu Protocol B để so với LightGBM.
 
 Trong Spark 3.5.3, `validationTol=0` vẫn cho phép dừng sớm nếu sai số
 hiệu chỉnh tăng. Script dùng thư mục checkpoint tạm cho các lần fit.

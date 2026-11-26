@@ -64,7 +64,7 @@ Kết quả kiểm thử của bản ETA lúc nhận được ghi dưới đây.
 | Notebook 06 với CSV Yantai | Bảy giá trị tính tay khớp bảng mẫu. Tổng lá cây khớp `predict()`. Điểm của cửa sổ cuối khớp benchmark theo seed. |
 | Bước ETA với Spark/Delta | Ghi và đọc được dự đoán, metric validation và mã lần chạy từ Delta cục bộ. Hàm ghi MySQL dùng bộ thay thế để kiểm tra bảng và dòng nhận được. |
 | Integration với Prefect, MinIO và MySQL | 2 đạt trong bộ dịch vụ riêng. Flow trên CSV mẫu qua lượt đầu, lỗi ghi serving được chèn và lượt chạy lại. Kiểm thử khóa MySQL cũng đạt. |
-| Đối soát nguồn Yantai bằng Spark | SHA-256 khớp. 206.062 khóa có nhãn hợp lệ ghép được với đặc trưng Bronze. Ngày cắt 01/10/2022 cho 169.412 nhãn fit, 25 nhãn chưa kịp có và 36.625 đơn thuộc tập chấm. Lượt này chỉ đối soát thành viên của tập. |
+| Đối soát nguồn Yantai bằng Spark | SHA-256 khớp. 206.062 khóa có nhãn hợp lệ ghép được với đặc trưng Bronze. Ngày cắt 01/10/2022 cho 169.412 nhãn fit và 36.625 đơn thuộc tập chấm. Khi che 25 nhãn xuất hiện muộn, hai đặc trưng `courier_completed_*` trùng trên cả 169.736 truy vấn Bronze trước ngày cắt. |
 | Cấu hình và nguồn notebook | Compose, `config/schema.yaml` và các cell định nghĩa hợp lệ. |
 
 Ở đợt ổn định trước khi chuyển đường dẫn, hai kiểm thử integration đã đạt. Đối
@@ -82,12 +82,14 @@ tái lập ngoại tuyến trên cohort của Protocol P.
 
 Prefect dùng `protocol_b_queue_history` cho ETA lúc nhận. Mô hình lấy các sự kiện
 trước truy vấn, fit bằng nhãn có trước cửa sổ hiệu chỉnh và công bố validation
-cuối. Kết quả ba cửa sổ và ba seed cho MAE 104,16 phút và ACC@30 31,88%.
+cuối. Kết quả phát triển qua ba cửa sổ và ba seed cho MAE 104,16 phút và
+ACC@30 31,88%. Các cửa sổ này đã dùng để chọn đặc trưng.
 Đối chứng Spark LR/GBT chạy trên cùng các đơn, mốc nhận và bộ đặc trưng B.
 GBT giữ 1 cây khi dừng sớm. Sau khi chọn số cây theo tập hiệu chỉnh, cả
-ba cửa sổ dùng 80 cây và MAE trên tập phát triển giảm từ 127,41 xuống 126,39 phút.
-Baseline Spark của notebook 04 đọc lịch sử đã biết từ Bronze và chỉ fit
-nhãn có trước ngày cắt. Dashboard chấm mọi đơn có nhãn hợp lệ từ ngày cắt
-và trình bày lát ≤24 giờ riêng. Holdout của cấu hình B + AOI + GPS lưu
-trong báo cáo lịch sử.
+ba cửa sổ dùng 80 cây, step size 0,10 và độ sâu 6. MAE benchmark giảm từ
+127,41 xuống 126,39 phút. Baseline Spark của notebook 04 dùng 40 cây,
+step size 0,10 và độ sâu 5 với bộ đặc trưng riêng từ Bronze và Fact. Dashboard
+đọc MAE của lần chạy pipeline trên mọi đơn có nhãn hợp lệ từ ngày cắt và
+trình bày lát ≤24 giờ riêng. Holdout trong báo cáo lịch sử thuộc cấu hình
+B + AOI + GPS. Bản hàng chờ hiện có điểm trên các cửa sổ phát triển.
 [Nguồn mẫu và kết quả](eta/training_data_lineage.md#35-so-sánh-rolling-origin-trên-cùng-mã-đơn)

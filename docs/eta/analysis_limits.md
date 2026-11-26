@@ -94,14 +94,25 @@ tuyến đường và giao thông thời gian thực rồi dùng ML hiệu chỉ
 
 ## 6. Giới hạn của bản hàng chờ và lịch sử
 
-Điểm rolling-origin của bản mới là điểm phát triển trên 24.647 đơn Yantai.
-Các dự đoán trong mỗi cửa sổ đi sau tập fit và tập hiệu chỉnh. Holdout
-đóng băng ở mục 5 tiếp tục là kết quả của cấu hình lịch sử đã chọn.
-Một phép đo thăm dò với bộ đặc trưng gần giống đã xem tập test Yantai
-đó. Đánh giá độc lập cho bản hàng chờ cần một tập theo thời gian chưa
-được xem.
-Phép đo giữ cùng tham số LightGBM để so bộ đặc trưng. Danh sách
-`candidates` trong `prereg.yaml` hiện có một cấu hình.
+1. Audit định lượng ảnh hưởng của `spd`, `ntodo` và `rank` trong Protocol P
+   bằng một biến thể thử nghiệm. Điểm tái lập Protocol P đi kèm giới hạn
+   cohort và các phụ thuộc tương lai đã công bố. Với baseline Spark cũ,
+   phép xấp xỉ bằng LightGBM đo ảnh hưởng của trung bình shipper có nhãn
+   của chính dòng. Notebook 04 hiện tính lịch sử từ các sự kiện đã quan sát
+   và dùng nhãn fit đã có trước ngày cắt. [Phép đo leakage](leak_measurement.md)
+2. Trên 24.647 đơn ở ba cửa sổ phát triển rolling-origin, thêm hàng chờ
+   và lịch sử giảm MAE từ 109,82 xuống **104,16 phút** qua seed 42–44 khi
+   giữ nguyên LightGBM và bộ đặc trưng nền theo sự kiện. Mức giảm so với
+   cấu hình lịch sử là **5,36 phút**. Những cửa sổ này đã dùng để chọn
+   đặc trưng. Holdout ở mục 5 thuộc cấu hình B + AOI + GPS lịch sử và từng
+   được xem trong một lượt thăm dò với bộ đặc trưng gần giống. Bản hàng
+   chờ cần một giai đoạn mới để đánh giá độc lập. [Kết quả rolling-origin](training_data_lineage.md#35-so-sánh-rolling-origin-trên-cùng-mã-đơn)
+3. Spark LR/GBT trong Prefect là baseline tham chiếu. Trong benchmark cùng
+   đơn và cùng bộ đặc trưng hàng chờ và lịch sử với seed 42, GBT đã hiệu
+   chỉnh đạt **126,39 phút** và LightGBM đạt **103,71 phút**. Chênh lệch
+   là 22,68 phút với khoảng tin cậy 95% từ 20,03 đến 25,68 phút. Cả hai đã có đặc
+   trưng hàng chờ trong phép so này. Kết quả phản ánh các cấu hình đã thử
+   và chưa tách được ảnh hưởng riêng của loss hay step size. [Đối chứng Spark và LightGBM](training_data_lineage.md#đối-chiếu-lightgbm-và-spark)
 
 Bản mới đạt ACC@30 **31,88%**, tức khoảng **68 trên 100 đơn** lệch quá
 30 phút. P90 sai số tuyệt đối khoảng **222 phút**. Mức này còn xa yêu cầu

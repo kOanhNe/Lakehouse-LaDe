@@ -157,11 +157,19 @@ def test_spark_baseline_features_do_not_depend_on_future_labels(local_spark, ste
     assert truncated == candidate
 
     fact, _rejected = steps.split_silver(bronze)
-    fit, score = steps.split_spark_baseline_rows(fact, "2022-06-05")
-    assert {r.order_id for r in fit.select("order_id").collect()} == {"done", "ends-at-query", "peer"}
+    cutoff = "2022-06-05"
+    fit, score = steps.split_spark_baseline_rows(fact, cutoff)
+    fit_ids = {r.order_id for r in fit.select("order_id").collect()}
+    assert fit_ids == {"done", "ends-at-query", "peer"}
     assert [(r.order_id, r.delivery_minutes) for r in score.select("order_id", "delivery_minutes").collect()] == [
         ("test-long", 3060),
     ]
+
+    before_cutoff = steps.parse_timestamp("delivery_time") < F.lit(cutoff).cast("timestamp")
+    masked_bronze = bronze.withColumn("delivery_time", F.when(before_cutoff, F.col("delivery_time")))
+    masked = {r.order_id: r for r in steps.spark_baseline_features(masked_bronze).collect()}
+    assert all(masked[order_id] == observed[order_id] for order_id in fit_ids)
+    assert observed["test-long"].courier_completed_count == masked["test-long"].courier_completed_count + 1
 
 
 def test_star_schema_and_fact_foreign_keys(local_spark):
