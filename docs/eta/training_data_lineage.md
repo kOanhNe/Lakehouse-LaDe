@@ -208,8 +208,10 @@ python -m scripts.experiments.run_eta_accept_benchmark --rolling-origin
 
 Chế độ `--spark` chạy LightGBM, Spark LR và Spark GBT trên cùng ba cửa sổ,
 cùng mã đơn và cùng bộ đặc trưng hàng chờ và lịch sử. Nhãn là số phút.
-GBT dùng `lossType="absolute"` và cùng tập hiệu chỉnh. LR dùng squared
-loss. Chỉ sau khi dự đoán mới cắt lát theo ngưỡng 1.440 phút.
+GBT là baseline chưa tinh chỉnh với `lossType="absolute"`, tối đa 80 cây
+và dừng sớm trên tập hiệu chỉnh. CSV lưu điểm dự đoán của từng cửa sổ.
+Để biết số cây thực tế cần ghi thêm `getNumTrees` khi fit. LR dùng
+squared loss. Chỉ sau khi dự đoán mới cắt lát theo ngưỡng 1.440 phút.
 [Mã nguồn GBT Spark 3.5.3](https://github.com/apache/spark/blob/v3.5.3/mllib/src/main/scala/org/apache/spark/ml/regression/GBTRegressor.scala)
 
 | Mô hình, seed 42 | MAE toàn bộ 24.647 đơn | MAE trên 24.053 đơn ≤1.440 phút | ACC@30 toàn bộ |
@@ -218,9 +220,16 @@ loss. Chỉ sau khi dự đoán mới cắt lát theo ngưỡng 1.440 phút.
 | Spark LR | 129,15 | 113,38 | 17,78% |
 | Spark GBT absolute | 127,41 | 112,13 | 20,43% |
 
-Các điểm Spark trên bảng này thuộc benchmark tại lúc nhận. Notebook 04
-tiếp tục công bố baseline Spark trên cohort lịch sử của fact.
+Chênh lệch MAE mô tả các cấu hình đã chạy trên tập này. So sánh ở mức
+thuật toán cần kiểm tra số cây thực tế và điều chỉnh tham số Spark bằng
+tập hiệu chỉnh. Notebook 04 công bố baseline Spark trên cohort lịch sử
+của fact với các giới hạn leakage ở mục 3.3.
 [CSV đối chứng Spark](../../reports/eta/eta_accept_spark_rolling.csv)
+
+Trong Spark 3.5.3, `validationTol=0` vẫn cho phép dừng sớm nếu sai số
+hiệu chỉnh tăng. Muốn đo mô hình chạy đủ một số vòng cố định, fit trên
+tập train rồi chấm riêng trên tập hiệu chỉnh.
+[Điều kiện dừng trong Spark](https://github.com/apache/spark/blob/v3.5.3/mllib/src/main/scala/org/apache/spark/ml/tree/impl/GradientBoostedTrees.scala#L430-L437)
 
 Chạy với image Jupyter đã build. Bài đo chỉ dùng Spark cục bộ trong container.
 

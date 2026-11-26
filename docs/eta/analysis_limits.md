@@ -97,6 +97,9 @@ tuyến đường và giao thông thời gian thực rồi dùng ML hiệu chỉ
 Điểm rolling-origin của bản mới là điểm phát triển trên 24.647 đơn Yantai.
 Các dự đoán trong mỗi cửa sổ đi sau tập fit và tập hiệu chỉnh. Holdout
 đóng băng ở mục 5 tiếp tục là kết quả của cấu hình lịch sử đã chọn.
+Một phép đo thăm dò với bộ đặc trưng gần giống đã xem tập test Yantai
+đó. Đánh giá độc lập cho bản hàng chờ cần một tập theo thời gian chưa
+được xem.
 Phép đo giữ cùng tham số LightGBM để so bộ đặc trưng. Danh sách
 `candidates` trong `prereg.yaml` hiện có một cấu hình.
 
