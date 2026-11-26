@@ -137,7 +137,10 @@ Kết quả ghi vào `eta_paper_gold` và `eta_paper_metrics_gold`. Đây là k�
 
 Protocol B ghi vào `eta_safe_gold` và `eta_safe_metrics_gold`. Prefect dùng B + AOI + GPS với hàng chờ và lịch sử gần đây. Bước này chọn nhãn fit và hiệu chỉnh theo thời điểm đã giao rồi công bố điểm trên cửa sổ validation cuối. Dashboard ghi mã biến thể, ngày chấm, MAE, WAPE và ACC@30/60. [Notebook tính tay](notebooks/06_eta_accept.ipynb)
 
-Trên 24.647 đơn validation Yantai ở ba cửa sổ liên tiếp, thêm hàng chờ và lịch sử gần đây đưa MAE trung bình qua ba seed từ **109,82** xuống **104,16 phút** so với bộ B + AOI + GPS dựng từ sự kiện. Mức giảm so với cấu hình lịch sử 109,52 là **5,36 phút**. ACC@30 là **31,88%**. Cả ba cửa sổ thuộc tập phát triển đã dùng để chọn đặc trưng. Đánh giá độc lập cần giai đoạn chưa dùng trong quá trình chọn mô hình. [Thiết kế và kết quả](docs/eta/training_data_lineage.md#35-so-sánh-rolling-origin-trên-cùng-mã-đơn)
+Trên 24.647 đơn validation Yantai ở ba cửa sổ liên tiếp, thêm hàng chờ và lịch sử gần đây giảm MAE trung bình qua ba seed từ **109,82** xuống **104,16 phút**, tức **5,66 phút** so với bộ B + AOI + GPS dựng từ sự kiện.
+Mức giảm so với cấu hình lịch sử 109,52 là **5,36 phút**. ACC@30 là **31,88%**.
+Cả ba cửa sổ thuộc tập phát triển đã dùng để chọn đặc trưng.
+Đánh giá độc lập cần giai đoạn chưa dùng trong quá trình chọn mô hình. [Thiết kế và kết quả](docs/eta/training_data_lineage.md#35-so-sánh-rolling-origin-trên-cùng-mã-đơn)
 
 Trong benchmark seed 42, Spark GBT và LightGBM cùng dùng bộ đặc trưng hàng chờ và lịch sử. GBT dừng sớm giữ một cây và đạt MAE 127,41 phút. GBT hiệu chỉnh với 80 cây, step size 0,10 và độ sâu 6 đạt 126,39 phút. LightGBM đạt 103,71 phút. Baseline Spark trong notebook 04 dùng tám cột số cùng AOI và vùng, với 40 cây, step size 0,10 và độ sâu 5. MAE của baseline này lấy từ `ml_metrics` theo từng lần chạy Prefect. [Đối chiếu cấu hình và tập chấm](docs/eta/training_data_lineage.md#đối-chiếu-lightgbm-và-spark)
 

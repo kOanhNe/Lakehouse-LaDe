@@ -102,17 +102,21 @@ tuyến đường và giao thông thời gian thực rồi dùng ML hiệu chỉ
    và dùng nhãn fit đã có trước ngày cắt. [Phép đo leakage](leak_measurement.md)
 2. Trên 24.647 đơn ở ba cửa sổ phát triển rolling-origin, thêm hàng chờ
    và lịch sử giảm MAE từ 109,82 xuống **104,16 phút** qua seed 42–44 khi
-   giữ nguyên LightGBM và bộ đặc trưng nền theo sự kiện. Mức giảm so với
-   cấu hình lịch sử là **5,36 phút**. Những cửa sổ này đã dùng để chọn
-   đặc trưng. Holdout ở mục 5 thuộc cấu hình B + AOI + GPS lịch sử và từng
-   được xem trong một lượt thăm dò với bộ đặc trưng gần giống. Bản hàng
-   chờ cần một giai đoạn mới để đánh giá độc lập. [Kết quả rolling-origin](training_data_lineage.md#35-so-sánh-rolling-origin-trên-cùng-mã-đơn)
-3. Spark LR/GBT trong Prefect là baseline tham chiếu. Trong benchmark cùng
-   đơn và cùng bộ đặc trưng hàng chờ và lịch sử với seed 42, GBT đã hiệu
-   chỉnh đạt **126,39 phút** và LightGBM đạt **103,71 phút**. Chênh lệch
-   là 22,68 phút với khoảng tin cậy 95% từ 20,03 đến 25,68 phút. Cả hai đã có đặc
-   trưng hàng chờ trong phép so này. Kết quả phản ánh các cấu hình đã thử
-   và chưa tách được ảnh hưởng riêng của loss hay step size. [Đối chứng Spark và LightGBM](training_data_lineage.md#đối-chiếu-lightgbm-và-spark)
+   giữ nguyên LightGBM và bộ đặc trưng nền theo sự kiện. Mức giảm là
+   **5,66 phút** so với bộ đặc trưng nền và **5,36 phút** so với cấu hình
+   lịch sử. Cả ba cửa sổ đã dùng để chọn đặc trưng. Holdout ở mục 5 thuộc
+   cấu hình B + AOI + GPS lịch sử và từng được xem trong một lượt thăm dò
+   với bộ đặc trưng gần giống. CSV Yantai có đơn nhận tới 31/10/2022, cũng
+   là ngày cuối của holdout đã xem. Để
+   đánh giá bản hàng chờ độc lập, cần chốt đặc trưng, cấu hình và cách chấm
+   trước khi chấm một lần trên giai đoạn mới. [Kết quả rolling-origin](training_data_lineage.md#35-so-sánh-rolling-origin-trên-cùng-mã-đơn)
+3. Spark LR/GBT trong Prefect là baseline tham chiếu. Notebook 04 giữ cấu
+   hình 40 cây cố định để mỗi lần chạy chỉ cần một lượt fit GBT với số cây
+   giới hạn. Trong benchmark cùng đơn và cùng bộ đặc trưng hàng chờ và lịch
+   sử với seed 42, GBT đã hiệu chỉnh đạt **126,39 phút** và LightGBM đạt
+   **103,71 phút**. Chênh lệch là 22,68 phút với khoảng tin cậy 95% từ 20,03
+   đến 25,68 phút. Kết quả phản ánh các cấu hình đã thử và chưa tách được
+   ảnh hưởng riêng của loss hay step size. [Đối chứng Spark và LightGBM](training_data_lineage.md#đối-chiếu-lightgbm-và-spark)
 
 Bản mới đạt ACC@30 **31,88%**, tức khoảng **68 trên 100 đơn** lệch quá
 30 phút. P90 sai số tuyệt đối khoảng **222 phút**. Mức này còn xa yêu cầu

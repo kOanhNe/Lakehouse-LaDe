@@ -200,8 +200,8 @@ cùng shipper. Timestamp nhận có độ phân giải phút.
 
 Các hàng LightGBM lấy trung bình qua seed 42–44 trên **24.647 đơn
 validation**. Thêm hàng chờ và lịch sử vào bộ B + AOI + GPS dựng theo sự
-kiện giảm MAE từ **109,82 xuống 104,16 phút**. So với cấu hình lịch sử,
-mức giảm trung bình là **5,36 phút**. Với seed 42, mức giảm so với cấu
+kiện giảm MAE từ **109,82 xuống 104,16 phút**, tức **5,66 phút**. So với
+cấu hình lịch sử, mức giảm trung bình là **5,36 phút**. Với seed 42, mức giảm so với cấu
 hình lịch sử là **6,08 phút**. Bootstrap ghép cặp theo 3.579 cụm
 shipper–ngày cho khoảng 95% từ **−7,50 đến −4,73 phút** với 2.000 lượt.
 Các cửa sổ này dùng để phát triển đặc trưng `protocol_b_queue_history`.
